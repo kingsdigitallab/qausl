@@ -27,4 +27,6 @@ Create the virtual environment:
 
 First make sure you have entered the virtual env.
 
-`python src/prep.py`
+`cd src`
+
+`python prep.py`
