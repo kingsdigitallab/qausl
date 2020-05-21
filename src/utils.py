@@ -47,7 +47,16 @@ def read_df_from_titles(path):
 
     return df
 
-def save_sets(df, depth=3, cat_test=2):
+def split_dataset(df, depth=3, cat_test=2):
+    '''
+    Shuffles and split the dataset into training and testing samples.
+    Uses a new column 'test' = 1|0 to determine if a sample is test or not.
+
+    :param df: dataframe with all titles
+    :param depth: depth of the taxonomy for the classification
+    :param cat_test: minimum number of test sample per class
+    :return: shuffled dataframe with a new column 'test': 1 or 0
+    '''
     # shuffle the data
     df = df.sample(frac=1, random_state=settings.SAMPLE_SEED).reset_index(drop=True)
     # create new col with desired cat depth
@@ -64,15 +73,12 @@ def save_sets(df, depth=3, cat_test=2):
 
     # split train - test
     df['test'] = 0
-    train = pd.DataFrame()
     for idx, row in df.iterrows():
         cat = row['cat']
         left = vc.get(cat, 0)
         if left:
             vc[cat] = left - 1
             df.loc[idx, 'test'] = 1
-
-    # print(len(df[df['test'] == 1]))
 
     return df
 
