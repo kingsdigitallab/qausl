@@ -14,7 +14,7 @@ def get_data_path(*path_parts):
     return ret
 
 def read_file(path):
-    with open(path, 'rt') as fh:
+    with open(path, 'rt', encoding='utf-8') as fh:
         ret = fh.read()
 
     return ret
@@ -87,3 +87,19 @@ def print_results(N, p, r):
     print("P@{}\t{:.3f}".format(1, p))
     print("R@{}\t{:.3f}".format(1, r))
 
+SEVERITY_INFO = 10
+SEVERITY_WARNING = 20
+SEVERITY_ERROR = 30
+
+def log(message, severity=SEVERITY_INFO):
+    severities = {
+        SEVERITY_INFO: 'INFO',
+        SEVERITY_WARNING: 'WARNING',
+        SEVERITY_ERROR: 'ERROR',
+    }
+    print('[{}] {}'.format(severities[severity], message))
+    if severity >= SEVERITY_ERROR:
+        exit()
+
+def log_error(message):
+    log(message, SEVERITY_ERROR)

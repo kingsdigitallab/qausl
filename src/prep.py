@@ -8,6 +8,10 @@ import fasttext
 
 # load titles.txt file into dataframe
 titles_path = utils.get_data_path('in', 'titles.txt')
+
+if not os.path.exists(titles_path):
+    utils.log_error('The training file ({0}) is missing. See README.md for more info.'.format(titles_path))
+
 df = utils.read_df_from_titles(titles_path)
 
 # save that as a csv
