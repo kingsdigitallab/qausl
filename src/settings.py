@@ -16,11 +16,10 @@ DIMS = 100
 # pre-existing embeddings file
 # EMBEDDING_FILE = 'wiki-news-300d-1M-subword.vec'
 EMBEDDING_FILE = 'Law2Vec.100d.txt'
-EMBEDDING_FILE = None
-
+# EMBEDDING_FILE = None
 
 # 1, 2 or 3: the depth of the taxonomy for the classification
-CAT_DEPTH = 1
+CAT_DEPTH = 3
 
 # how many times we repeat training over different train/test splits
 TRAIN_REPEAT = 10

@@ -1,13 +1,14 @@
-/home/jeff/src/lispace/qausl/venv/bin/python /home/jeff/src/lispace/qausl/src/prep.py
+Depth 3
+
+10 trials
+200 epochs?
+self?
 438 training, 16 testing
 Read 0M words
 Number of words:  1335
 Number of labels: 9
-Progress: 100.0% words/sec/thread:  587514 lr:  0.000000 avg.loss:  0.002520 ETA:   0h 0m 0s
 acc: 0.75 certain: 0.75 acc certain: 0.92 0.69
 avg: 0.75 [0.75, 0.75]
-
-Process finished with exit code 0
 
 10 trials
 200 epochs

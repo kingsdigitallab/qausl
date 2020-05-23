@@ -100,4 +100,9 @@ acc_avg = sum(accs) / len(ress)
 acc_min = min(accs)
 acc_max = max(accs)
 
-print('avg: {:.2f} [{:.2f}, {:.2f}]'.format(acc_avg, acc_min, acc_max))
+print('avg: {:.2f} [{:.2f}, {:.2f}], depth: {}, {} trials, {} dims, {} epochs, (Embedddings: {})'.format(
+    acc_avg, acc_min, acc_max,
+    settings.CAT_DEPTH,
+    settings.TRAIN_REPEAT,
+    settings.DIMS, settings.EPOCHS, settings.EMBEDDING_FILE
+))
