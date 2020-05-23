@@ -1,2 +1,5 @@
 pandas
+# for windows:
+# download appropriate version of https://www.lfd.uci.edu/~gohlke/pythonlibs/#fasttext
+# then pip install that wheel file
 fasttext
