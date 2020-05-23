@@ -7,7 +7,7 @@ SAMPLE_SEED = None
 os.makedirs(os.path.join(DATA_PATH, 'out'), exist_ok=True)
 
 # how many epochs for training, 500 seems ideal for 450 training set of titles
-EPOCHS = 700
+EPOCHS = 200
 
 # dimension of the word embeddings
 # fasttext default: 100; 10 still gives good results
@@ -20,7 +20,7 @@ EMBEDDING_FILE = None
 
 
 # 1, 2 or 3: the depth of the taxonomy for the classification
-CAT_DEPTH = 3
+CAT_DEPTH = 1
 
 # how many times we repeat training over different train/test splits
 TRAIN_REPEAT = 10
