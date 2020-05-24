@@ -1,0 +1,224 @@
+0. Personal
+00. Wealth.
+000. Estates broadly defined (including settlements, specific leases, jointures).
+001. Wills, inheritance.
+002. Guardianship, minors.
+003. Patents.
+004. Divorce and allowing to marry.
+005. Illegitimate, legitimate.
+006. Bankruptcy, debt of individual.
+009. Miscellaneous.
+01. Status
+010. Name change.
+011. Naturalization (individual or small groups only).
+012. Dignities (e.g. peerage creations).
+019. Miscellaneous.
+1. Government.
+10. Executive.
+100. The Crown.
+101. Forfeited estates, Crown grants, Crown lands.
+102. Departments.
+109. Miscellaneous.
+11. Legislature.
+110. Parliamentary elections.
+111. Parliamentary business.
+112. Parliamentary privilege.
+119. Miscellaneous.
+12. Local.
+120. County.
+121. Parish.
+122. Borough.
+123. Other.
+124. Colonies and plantations (including Ireland).
+129. Miscellaneous.
+
+2. Finance.
+20. Public finance.
+200. Land Tax.
+201. Customs and excise.
+202. Smuggling and fraud.
+203. Public lotteries, annuities.
+205. Loans and national debt management (e.g. Bank of England).
+206. Other direct taxes (i.e. windows, carriages).
+207. Debts to Crown.
+208. Civil list.
+209. Miscellaneous.
+21. Money and banking.
+210. Coinage and clipping.
+211. Bullion.
+212. Stock exchange and share market.
+213. Bank, lenders (e.g. pawnbrokers).
+214. Usury.
+215. Notes, bills of exchange and other paper money.
+216. Insurance, assurance.
+217. Bankruptcy and debt.
+219. Miscellaneous (including private lotteries).
+
+3. Law and order.
+30. Law.
+300. Criminal law.
+301. Law of property (including land registry).
+302. Intellectual property (e.g. rewards, patents, copyright).
+303. Common law, customary rights.
+304. Marriages.
+305. Game laws.
+309. Miscellaneous.
+31. Order.
+310. Legal administration and procedure.
+311. Civil order, riots, sedition.
+312. Treason, oaths of allegiance, impeachments.
+313. Punishments (including outlawry) and pardons, indemnity.
+314. Prisons and prisoners.
+319. Miscellaneous.
+
+4. Religion.
+40. Anglicanism.
+400. Livings, entitlements, tithes.
+401. Parishes, churches, and cathedrals (e.g. building fabric and creating parishes).
+402. Hierarchy and administration.
+403. Theology, ritual.
+404. Fasts, celebrations.
+405. Authority (e.g. church courts).
+409. Miscellaneous.
+41. Non-Anglican religions.
+410. General toleration, general naturalization.
+411. Protestant dissent.
+412. Popery.
+413. Blasphemy, Sabbath breaking, swearing, atheism (but see 606).
+414. Popular beliefs, magic.
+419. Miscellaneous.
+
+5. Armed Services.
+50. Army (including Marines).
+500. Recruitment and disbanding.
+501. Pay and arrears.
+502. Provisions, equipment, ordnance, victualling, debts.
+503. Organization and discipline.
+504. Fortifications.
+505. Pensions, retirement, hospitals (e.g. Chelsea).
+509. Miscellaneous (including promotions).
+51. Navy.
+510. Recruitment and disbanding.
+511. Pay and arrears.
+512. Provisions, equipment, ordnance, victualling, debts.
+513. Organization and discipline.
+514. Fortifications and convoys.
+515. Pensions, retirement, hospitals (e.g. Greenwich).
+516. Prizes, privateers and piracy.
+519. Miscellaneous (including promotions).
+52. Militia (including Volunteers).
+520. Recruitment and disbanding.
+521. Pay and arrears.
+522. Provisions, equipment, ordnance, victualling, debts.
+523. Organization and discipline.
+524. Fortifications.
+525. Pensions, retirement, hospitals.
+529. Miscellaneous (including promotions).
+
+6. Social issues.
+60. Health and community.
+600. Physical and mental health (e.g. hospitals, apothecaries, quarantine).
+601. Water supply and sewage.
+602. Streets, pavements, and cleaning.
+603. Lightning and watch.
+604. Building regulations and housing.
+605. Fire.
+606. Moral regulation (including prostitution, gambling etc.).
+607. Cemeteries and death.
+609. Miscellaneous.
+61. Labour.
+610. Wages (including truck).
+611. Hours and conditions.
+612. Apprenticeship and skills.
+613. Combinations, friendly societies.
+614. Emigration and immigration (not poor relief settlement regulations).
+619. Miscellaneous.
+62. Poor law and poverty.
+620. Poor law relief (including bastardy and settlement).
+621. Vagrancy.
+622. Workhouses, bridewells, idleness, putting to work.
+623. Charities for poor (including orphans, prostitutes).
+629. Miscellaneous.
+63. Education and knowledge.
+630. Schools.
+631. Universities, colleges.
+632. Libraries.
+633. Sciences and the useful arts.
+634. The written word (e.g. press, censorship).
+639. Miscellaneous.
+64. Culture.
+640. Theatre, music, entertainment.
+641. Museums, exhibitions, art, etc.
+642. Sports.
+649. Miscellaneous.
+
+7. Economy.
+70. The land.
+700. Enclosures and waste lands.
+701. Leases, general.
+702. Stewardship.
+703. Drainage and flooding.
+704. General improvement.
+709. Miscellaneous.
+71. Agricultural production.
+710. Corn.
+711. Other crops (including market gardening).
+712. Livestock and dairy production.
+713. Woods and forests.
+714. Fisheries (including whaling).
+719. Miscellaneous.
+72. Mines and quarries.
+720. Coal.
+721. Metals.
+722. Other (including salt).
+723. Quarry.
+729. Miscellaneous.
+73. Food and drink manufactures.
+730. Brewing, distilling, malt.
+731. Food processing (e.g. baking, butchery).
+739. Miscellaneous.
+74. Other manufactures.
+740. Wool.
+741. Other textiles.
+742. Metal.
+743. Leather.
+744. Wood.
+745. Construction.
+746. Precious metals and jewellery.
+747. Shipbuilding.
+749. Miscellaneous.
+75. Internal trade.
+750. Consumption restrictions-encouragement (sumptuary etc.).
+751. Companies and business law (including guilds).
+752. Weights, measures, standards, frauds.
+753. Price regulation.
+754. Wholesalers—merchants, jobbers, badgers.
+755. Retailers—shops, markets and fairs, hawkers.
+759. Miscellaneous.
+76. External trade.
+760. Import, export regulations (including navigation acts).
+761. Food and drink (including tobacco, sugar).
+762. Textiles.
+763. Slaves.
+764. Other raw materials.
+765. Other finished products.
+769. Miscellaneous.
+8. Communications.
+80. Water.
+800. Rivers.
+801. Canals.
+802. Bridges, ferries and tunnels.
+803. Ports, harbours, docks, piers, quays (including pilots).
+804. Shipping.
+805. Lighthouses and safety at sea.
+809. Miscellaneous.
+81. Roads.
+810. Roads, general.
+811. Roads, specifics (i.e. largely turnpikes).
+812. Post Office.
+819. Miscellaneous.
+
+9. Miscellaneous.
+900. Unknown.
+910. Multipurpose.
+920. Uncertain.

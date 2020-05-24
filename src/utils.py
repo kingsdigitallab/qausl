@@ -1,7 +1,7 @@
 import os
 import re
 import pandas as pd
-from src import settings
+import settings
 
 def get_data_path(*path_parts):
     '''e.g. get_data_path('in', 'myfile.txt', makedirs=True)
@@ -47,7 +47,7 @@ def read_df_from_titles(path):
 
     return df
 
-def split_dataset(df, depth=3, cat_test=2):
+def split_dataset(df, depth=3, cat_train=2, cat_test=2, cat_valid=0):
     '''
     Shuffles and split the dataset into training and testing samples.
     Uses a new column 'test' = 1|0 to determine if a sample is test or not.
@@ -63,12 +63,16 @@ def split_dataset(df, depth=3, cat_test=2):
     df['cat'] = df['cat1'].apply(lambda v: v[:depth])
     # count cats
     vc = df['cat'].value_counts()
-    # print(vc)
+
+    if 0:
+        # save number of samples per class
+        vc.to_csv(get_data_path('out', 'cat-{}.csv'.format(depth)))
 
     # only get cat which have enough samples
-    cat_train = cat_test
-    vc = vc.where(lambda x: x >= cat_train + cat_test).dropna()
-    vc = {k: 2 for k in vc.index}
+    vc = vc.where(lambda x: x >= (cat_train + cat_test + cat_valid)).dropna()
+    # print(vc, len(vc))
+    vc = {k: cat_test for k in vc.index}
+    # exit()
     # print(vc)
 
     # split train - test
@@ -78,7 +82,9 @@ def split_dataset(df, depth=3, cat_test=2):
         left = vc.get(cat, 0)
         if left:
             vc[cat] = left - 1
-            df.loc[idx, 'test'] = 1
+            df.loc[idx, 'test'] = 1 if (left > cat_valid) else 2
+
+    # df = df.append(get_class_titles(depth))
 
     return df
 
@@ -103,3 +109,59 @@ def log(message, severity=SEVERITY_INFO):
 
 def log_error(message):
     log(message, SEVERITY_ERROR)
+
+def extract_transcripts_from_pdfs():
+
+    fh = open(get_data_path('out', 'transcripts.txt'), 'wb')
+
+    import textract
+    from pathlib import Path
+    paths = list(Path(get_data_path('in', 'pdfs')).rglob("*TEXT*.pdf"))
+
+    paths = [str(p) for p in paths]
+    for p in sorted(paths, key=lambda p: os.path.basename(p)):
+        print(p)
+        fh.write(('\n\nNEWFILE {}\n\n'.format(os.path.basename(p))).encode('utf-8'))
+
+        content = textract.process(p, method='tesseract', language='eng')
+
+        fh.write(content)
+
+    fh.close()
+
+def get_class_titles(depth=3):
+
+    classes = {}
+
+    content = read_file(get_data_path('in', 'classes.txt'))
+
+    for cls in re.findall(r'(?m)^(\d+)\.?\s+(.+)$', content):
+        cls_num = cls[0]
+        cls = {
+            'title': cls[1],
+            'titlen': re.sub(r'\W', ' ', cls[1].lower()),
+            'cat1': cls_num,
+            'cat2': '',
+            'cat': cls_num,
+            'id': 'cls_'+cls_num,
+            'test': 0,
+        }
+        # print(cls)
+        classes[cls_num] = cls
+
+    data = []
+    for cls in classes.values():
+        num = cls['cat']
+        if len(num) == depth:
+            data.append(cls)
+            while num:
+                num = num[:-1]
+                parent = classes.get(num)
+                if parent:
+                    cls['title'] += ' ' + parent['title']
+                    cls['titlen'] += ' ' + parent['titlen']
+            # print(cls)
+
+    ret = pd.DataFrame(data)
+
+    return ret

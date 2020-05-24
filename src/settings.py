@@ -15,14 +15,28 @@ DIMS = 100
 
 # pre-existing embeddings file
 # EMBEDDING_FILE = 'wiki-news-300d-1M-subword.vec'
-EMBEDDING_FILE = 'Law2Vec.100d.txt'
-# EMBEDDING_FILE = None
+# EMBEDDING_FILE = 'Law2Vec.100d.txt'
+EMBEDDING_FILE = None
 
 # 1, 2 or 3: the depth of the taxonomy for the classification
 CAT_DEPTH = 3
 
 # how many times we repeat training over different train/test splits
-TRAIN_REPEAT = 10
+# 20 trials should be enough to remove variation, but long to run
+TRAIN_REPEAT = 20
 
 # minimum degree of confidence for each prediction
 MIN_CONFIDENCE = 0.96
+
+# how many test sample per class
+TEST_PER_CLASS = 2
+
+# minimum number of training samples per class
+TRAIN_PER_CLASS = 1
+
+# how many validation sample per class
+# 0 means we don't use validation
+VALID_PER_CLASS = 1
+
+# in seconds
+AUTOTUNE_DURATION = 30

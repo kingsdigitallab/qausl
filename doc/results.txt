@@ -1,3 +1,32 @@
+Goal
+----
+
+Classification is advantagous only if it can
+classify >5k of articles
+with <0.5% of error
+
+
+Improvements
+------------
+
+DONE add cat titles to the training set [not beneficial]
+* use autotune with validation set
+* use the text content
+* augment training set from other sources using the same classification
+
+Questions
+---------
+
+Q1a: how much prediction errors affected by under-representation of some classes?
+    => return confusion matrix and compare with class distribution
+Q1b: if there is a strong correlation, can we estimate how many sample/class are needed to get much better results?
+
+Q2: what is the cut-off confidence level? And what automation benefit can we expect from it?
+    => return a table showing the accuracy for various points of confidence
+
+Trial logs
+----------
+
 Depth 3
 
 386 training, 68 testing
@@ -73,3 +102,10 @@ Number of words:  1335
 Number of labels: 9
 acc: 0.75 certain: 0.75 acc certain: 0.92 0.69
 avg: 0.75 [0.75, 0.75]
+
+---
+Depth 2
+
+acc: 0.58 certain: 0.47 acc certain: 0.65 0.31
+avg: 0.62 [0.53, 0.72], depth: 2, 10 trials, 100 dims, 500 epochs, (Embedddings: None)
+

@@ -1,10 +1,18 @@
 import os
-from src import utils
+import utils
 from _csv import QUOTE_NONE
 import re
 import pandas as pd
-from src import settings
+import settings
 import fasttext
+import time
+
+utils.get_class_titles(1)
+# exit()
+
+# utils.extract_transcripts_from_pdfs()
+# exit()
+
 
 # load titles.txt file into dataframe
 titles_path = utils.get_data_path('in', 'titles.txt')
@@ -22,20 +30,28 @@ df.to_csv(titles_out_path, columns=['id', 'cat1', 'cat2', 'title'], index=False)
 # normalise the title
 df['titlen'] = df['title'].apply(lambda v: re.sub(r'\W', ' ', v.lower()))
 
-
 def train_and_test(df):
     ret = {}
 
     # randomly split the dataset
-    df = utils.split_dataset(df, settings.CAT_DEPTH)
+    df = utils.split_dataset(
+        df,
+        settings.CAT_DEPTH,
+        settings.TRAIN_PER_CLASS,
+        settings.TEST_PER_CLASS,
+        settings.VALID_PER_CLASS,
+    )
 
     # prepare the label for fasttext format
     df['label'] = df['cat'].apply(lambda v: '__label__{}'.format(v))
 
     # save train and test set
     dfs = []
-    for i in [0, 1]:
-        path = titles_out_path + ('.tst' if i else '.trn')
+    exts = ['.trn', '.tst']
+    if settings.VALID_PER_CLASS:
+        exts.append('.val')
+    for i, ext in enumerate(exts):
+        path = titles_out_path + ext
         adf = df.loc[df['test'] == i]
         adf.to_csv(
             path, columns=['label', 'titlen'], index=False, sep=' ',
@@ -44,23 +60,34 @@ def train_and_test(df):
         dfs.append({
             'path': path,
             'df': adf,
+            'ext': ext,
         })
 
-    print('{} training, {} testing'.format(len(dfs[0]['df']), len(dfs[1]['df'])))
+    print(
+        ', '.join([
+            '{} {}'.format(len(df['df']), df['ext'])
+            for df in dfs
+        ]),
+        '({} test classes)'.format(len(dfs[1]['df']['cat'].value_counts()))
+    )
 
     options = {
-        'dim': settings.DIMS,
     }
+
+    if settings.VALID_PER_CLASS:
+        options['autotuneValidationFile'] = dfs[2]['path']
+        options['autotuneDuration'] = settings.AUTOTUNE_DURATION
+    else:
+        options['epoch'] = settings.EPOCHS
+        options['dim'] = settings.DIMS
 
     if settings.EMBEDDING_FILE:
         options['pretrainedVectors'] = utils.get_data_path('in', settings.EMBEDDING_FILE)
 
-    model = fasttext.train_supervised(dfs[0]['path'], epoch=settings.EPOCHS, **options)
-
-    # print(model.get_nearest_neighbors('erect'))
-    # print(model.words)
-    # print(model.labels)
-    # utils.print_results(*model.test(test_path))
+    model = fasttext.train_supervised(
+        dfs[0]['path'],
+        **options
+    )
 
     acc = 0
     sure = 0
@@ -80,6 +107,9 @@ def train_and_test(df):
             corr = '!!'
         # print(corr, res, row['label'], row['titlen'])
 
+    if sure < 1:
+        sure = 0.001
+
     print('acc: {:.2f} certain: {:.2f} acc certain: {:.2f} {:.2f}'.format(
         acc / len(dfs[1]['df']),
         sure / len(dfs[1]['df']),
@@ -92,17 +122,21 @@ def train_and_test(df):
     return ret
 
 ress = []
+t0 = time.time()
 for i in range(0, settings.TRAIN_REPEAT):
+    print('trial {}/{}'.format(i + 1, settings.TRAIN_REPEAT))
     ress.append(train_and_test(df))
+t1 = time.time()
 
 accs = [r['acc'] for r in ress]
 acc_avg = sum(accs) / len(ress)
 acc_min = min(accs)
 acc_max = max(accs)
 
-print('avg: {:.2f} [{:.2f}, {:.2f}], depth: {}, {} trials, {} dims, {} epochs, (Embedddings: {})'.format(
+print('avg: {:.2f} [{:.2f}, {:.2f}], depth: {}, {} trials, {} dims, {} epochs, (Embedddings: {}), {:.1f} minutes.'.format(
     acc_avg, acc_min, acc_max,
     settings.CAT_DEPTH,
     settings.TRAIN_REPEAT,
-    settings.DIMS, settings.EPOCHS, settings.EMBEDDING_FILE
+    settings.DIMS, settings.EPOCHS, settings.EMBEDDING_FILE,
+    (t1-t0)/60
 ))
