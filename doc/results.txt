@@ -20,7 +20,8 @@ WONT augment training set from other sources using the same classification
 TODO use text content to create embeddings
 TODO re-balance training set
     by duplicating samples
-    by removing samples
+    CHECK by removing samples
+        seems to correct biggest spill out mistakes and increases accuracy by 3-4%
 remove acts/resolution
 
 Conclusions
@@ -28,6 +29,8 @@ Conclusions
 
 Analysis:
 78% for level 1 cat, 61% for level 2, 54% for level 3.
+A 3rd of the corpus can be classified with ~5% mistakes.
+    10k articles => classify 3+k and 150 mistakes, some minors.
 Can get a level of certainty but lots of false positive.
 This method needs sufficient
 ? probably not enough data

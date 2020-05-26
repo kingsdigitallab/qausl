@@ -11,6 +11,9 @@ TRANSCRIPTS_PATH = os.path.join(DATA_PATH, 'in', 'transcripts.txt')
 TRANSCRIPTS_MODEL_NAME = 'transcripts.bin'
 TRANSCRIPTS_MODEL_PATH = os.path.join(DATA_PATH, 'in', TRANSCRIPTS_MODEL_NAME)
 
+PLOT_PATH = os.path.join(DATA_PATH, 'out', 'plots')
+os.makedirs(PLOT_PATH, exist_ok=True)
+
 # how many epochs for training, 500 seems ideal for 450 training set of titles
 EPOCHS = 400
 
@@ -20,15 +23,15 @@ DIMS = 100
 
 # pre-existing embeddings file
 # EMBEDDING_FILE = 'wiki-news-300d-1M-subword.vec'
-EMBEDDING_FILE = 'Law2Vec.100d.txt'
-# EMBEDDING_FILE = None
+# EMBEDDING_FILE = 'Law2Vec.100d.txt'
+EMBEDDING_FILE = None
 
 # 1, 2 or 3: the depth of the taxonomy for the classification
 CAT_DEPTH = 1
 
 # how many times we repeat training over different train/test splits
-# 20 trials should be enough to remove variation, but long to run
-TRAIN_REPEAT = 20
+# 30 trials should be enough to remove variation, but long to run
+TRAIN_REPEAT = 50
 
 # minimum degree of confidence for each prediction
 MIN_CONFIDENCE = 0.96
@@ -41,7 +44,7 @@ TEST_PER_CLASS = 2
 # default 1
 TRAIN_PER_CLASS = 2
 
-TRAIN_PER_CLASS_MAX = 60
+TRAIN_PER_CLASS_MAX = 1000
 
 # how many validation sample per class
 # 0 means we don't use validation
@@ -50,4 +53,6 @@ VALID_PER_CLASS = 0
 
 # FT auto-tuning in in seconds
 # FT recommends 300+, 20-60s for small dataset is ok
-AUTOTUNE_DURATION = 20
+AUTOTUNE_DURATION = 60
+
+REPORT_CONFIDENCES = [0, 0.5, 0.75, 0.85, 0.9, 0.92, 0.95, 0.96, 0.98, 0.99, 0.995]

@@ -109,12 +109,19 @@ SEVERITY_ERROR = 30
 
 
 def log(message, severity=SEVERITY_INFO):
+    import time
+
     severities = {
         SEVERITY_INFO: 'INFO',
         SEVERITY_WARNING: 'WARNING',
         SEVERITY_ERROR: 'ERROR',
     }
-    print('[{}] {}'.format(severities[severity], message))
+    full_message = '[{}] {}'.format(severities[severity], message)
+    print(full_message)
+
+    with open(get_data_path('out', 'experiments.log'), 'at') as fh:
+        fh.write('[{}] {}'.format(time.strftime("%Y-%m-%d %H:%M"), full_message+'\n'))
+
     if severity >= SEVERITY_ERROR:
         exit()
 
@@ -244,15 +251,21 @@ def get_confusion_matrix(preds):
 
 
 def get_exp_key():
-    return '{}d-{}ep-{}tr-{}'.format(
+    auto = ''
+    if settings.VALID_PER_CLASS:
+        auto = '-{}a'.format(settings.AUTOTUNE_DURATION)
+
+    return '{}l-{}d-{}ep-{}tr-{}{}'.format(
+        settings.CAT_DEPTH,
         settings.DIMS,
         settings.EPOCHS,
         settings.TRAIN_REPEAT,
         settings.EMBEDDING_FILE,
+        auto
     )
 
 
-def render_confusion(df_confusion, preds):
+def render_confusion(df_confusion, preds, fmt='g', vmax=None, fname='conf'):
     import seaborn as sn
     import matplotlib.pyplot as plt
     import numpy as np
@@ -264,11 +277,14 @@ def render_confusion(df_confusion, preds):
 
     df_confusion[df_confusion == 0] = np.nan
 
+    if vmax is None:
+        vmax = max(df_confusion.iloc[0])*1.5
+
     sn.heatmap(
         df_confusion,
         annot=True,
-        vmax=max(df_confusion.iloc[0])*1.5,
-        fmt='g',
+        vmax=vmax,
+        fmt=fmt,
         ax=ax1,
         annot_kws={'size': 5},
         cmap='Blues',
@@ -290,4 +306,43 @@ def render_confusion(df_confusion, preds):
     ax1.set_xticks([float(n) + 0.5 for n in ax1.get_xticks()])
     ax1.set_yticks([float(n) + 0.5 for n in ax1.get_yticks()])
 
-    plt.savefig(get_data_path('out', get_exp_key() + '.svg'))
+    ax1.xaxis.tick_top()
+
+    plt.savefig(get_data_path(settings.PLOT_PATH, get_exp_key() + '-' + fname + '.svg'))
+
+def render_confidence_matrix(preds):
+
+    ret = []
+
+    cats = sorted(list(set(preds['pred']).union(set(preds['cat']))))
+
+    ret.append({
+        conf: len(preds[(preds['cat'] == preds['pred']) & (preds['conf'] >= conf)]) / len(preds[preds['conf'] >= conf])
+        for conf in settings.REPORT_CONFIDENCES
+    })
+    ret[-1]['cat'] = 'All P'
+    ret.append({
+        conf: len(preds[(preds['cat'] == preds['pred']) & (preds['conf'] >= conf)]) / len(preds)
+        for conf in settings.REPORT_CONFIDENCES
+    })
+    ret[-1]['cat'] = 'All R'
+
+    for cat in cats:
+        cpreds = preds[preds['pred'] == cat]
+        ret.append({
+            conf: len(cpreds[(cpreds['cat'] == cat) & (cpreds['conf'] >= conf)]) / max(len(cpreds[cpreds['conf'] >= conf]), 0.1)
+            for conf in settings.REPORT_CONFIDENCES
+        })
+        ret[-1]['cat'] = cat + ' P'
+        ret.append({
+            conf: len(cpreds[(cpreds['cat'] == cat) & (cpreds['conf'] >= conf)]) / len(preds[preds['cat'] == cat])
+            for conf in settings.REPORT_CONFIDENCES
+        })
+        ret[-1]['cat'] = cat + ' R'
+
+
+    ret = pd.DataFrame(ret).set_index('cat', drop=True)
+
+    render_confusion(ret, preds, '.2f', 1.0, fname='roc')
+
+    return ret

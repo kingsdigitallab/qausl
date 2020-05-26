@@ -115,21 +115,18 @@ for i in range(0, settings.TRAIN_REPEAT):
 t1 = time.time()
 
 preds = pd.DataFrame(preds)
-df_confusion = utils.get_confusion_matrix(preds)
 
-utils.render_confusion(df_confusion, preds)
+if 1:
+    df_confusion = utils.get_confusion_matrix(preds)
+    utils.render_confusion(df_confusion, preds)
 
+if 1:
+    utils.render_confidence_matrix(preds)
 
-if 0:
-    accs = [r['acc'] for r in ress]
-    acc_avg = sum(accs) / len(ress)
-    acc_min = min(accs)
-    acc_max = max(accs)
-
-    print('avg: {:.2f} [{:.2f}, {:.2f}], depth: {}, {} trials, {} dims, {} epochs, (Embedddings: {}), {:.1f} minutes.'.format(
-        acc_avg, acc_min, acc_max,
-        settings.CAT_DEPTH,
-        settings.TRAIN_REPEAT,
-        settings.DIMS, settings.EPOCHS, settings.EMBEDDING_FILE,
+if 1:
+    acc = len(preds.loc[preds['pred'] == preds['cat']]) / len(preds)
+    utils.log('{}, {:.2f} acc, {:.1f} minutes.'.format(
+        utils.get_exp_key(),
+        acc,
         (t1-t0)/60
     ))
