@@ -75,12 +75,9 @@ def split_dataset(df, depth=3, cat_train=2, cat_test=2, cat_valid=0):
 
     # only get cat which have enough samples
     vc = vc.where(lambda x: x >= (cat_train + cat_test + cat_valid)).dropna()
-    # print(vc, len(vc))
-    vc = {k: cat_test for k in vc.index}
-    # exit()
-    # print(vc)
+    vc = {k: cat_test + cat_valid for k in vc.index}
 
-    # split train - test
+    # split 0:train - 1:test - 2:valid
     df['test'] = -1
     for idx, row in df.iterrows():
         cat = row['cat']
@@ -317,7 +314,7 @@ def render_confidence_matrix(preds):
     cats = sorted(list(set(preds['pred']).union(set(preds['cat']))))
 
     ret.append({
-        conf: len(preds[(preds['cat'] == preds['pred']) & (preds['conf'] >= conf)]) / len(preds[preds['conf'] >= conf])
+        conf: len(preds[(preds['cat'] == preds['pred']) & (preds['conf'] >= conf)]) / max(len(preds[preds['conf'] >= conf]), 0.1)
         for conf in settings.REPORT_CONFIDENCES
     })
     ret[-1]['cat'] = 'All P'
@@ -335,7 +332,7 @@ def render_confidence_matrix(preds):
         })
         ret[-1]['cat'] = cat + ' P'
         ret.append({
-            conf: len(cpreds[(cpreds['cat'] == cat) & (cpreds['conf'] >= conf)]) / len(preds[preds['cat'] == cat])
+            conf: len(cpreds[(cpreds['cat'] == cat) & (cpreds['conf'] >= conf)]) / max(len(preds[preds['cat'] == cat]), .1)
             for conf in settings.REPORT_CONFIDENCES
         })
         ret[-1]['cat'] = cat + ' R'

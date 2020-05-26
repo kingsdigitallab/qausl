@@ -31,7 +31,7 @@ CAT_DEPTH = 1
 
 # how many times we repeat training over different train/test splits
 # 30 trials should be enough to remove variation, but long to run
-TRAIN_REPEAT = 50
+TRAIN_REPEAT = 5
 
 # minimum degree of confidence for each prediction
 MIN_CONFIDENCE = 0.96
@@ -42,17 +42,17 @@ TEST_PER_CLASS = 2
 
 # minimum number of training samples per class
 # default 1
-TRAIN_PER_CLASS = 2
+TRAIN_PER_CLASS = 1
 
 TRAIN_PER_CLASS_MAX = 1000
 
 # how many validation sample per class
 # 0 means we don't use validation
 # default 1
-VALID_PER_CLASS = 0
+VALID_PER_CLASS = 1
 
 # FT auto-tuning in in seconds
 # FT recommends 300+, 20-60s for small dataset is ok
-AUTOTUNE_DURATION = 60
+AUTOTUNE_DURATION = 30
 
 REPORT_CONFIDENCES = [0, 0.5, 0.75, 0.85, 0.9, 0.92, 0.95, 0.96, 0.98, 0.99, 0.995]

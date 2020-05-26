@@ -95,11 +95,12 @@ def train_and_test(df, preds):
     if sure < 1:
         sure = 0.001
 
-    print('acc: {:.2f} certain: {:.2f} acc certain: {:.2f} {:.2f}'.format(
+    print('acc: {:.2f} certain: {:.2f} acc certain: {:.2f} {:.2f}; {}d'.format(
         acc / len(dfs[1]['df']),
         sure / len(dfs[1]['df']),
         sure_correct / sure,
-        sure_correct / len(dfs[1]['df'])
+        sure_correct / len(dfs[1]['df']),
+        model.get_dimension(),
     ))
 
     ret['acc'] = acc / len(dfs[1]['df'])
