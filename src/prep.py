@@ -1,17 +1,18 @@
 import os
 import utils
-from _csv import QUOTE_NONE
 import re
 import pandas as pd
 import settings
 import fasttext
 import time
 
-utils.get_class_titles(1)
-# exit()
+if 0:
+    utils.extract_transcripts_from_pdfs()
+    exit()
 
-# utils.extract_transcripts_from_pdfs()
-# exit()
+if 0:
+    utils.learn_embeddings_from_transcipts()
+    exit()
 
 
 # load titles.txt file into dataframe
@@ -30,7 +31,7 @@ df.to_csv(titles_out_path, columns=['id', 'cat1', 'cat2', 'title'], index=False)
 # normalise the title
 df['titlen'] = df['title'].apply(lambda v: re.sub(r'\W', ' ', v.lower()))
 
-def train_and_test(df):
+def train_and_test(df, preds):
     ret = {}
 
     # randomly split the dataset
@@ -42,37 +43,10 @@ def train_and_test(df):
         settings.VALID_PER_CLASS,
     )
 
-    # prepare the label for fasttext format
-    df['label'] = df['cat'].apply(lambda v: '__label__{}'.format(v))
+    # prep sets for FT and save them on disk
+    dfs = utils.save_ft_sets(df, titles_out_path)
 
-    # save train and test set
-    dfs = []
-    exts = ['.trn', '.tst']
-    if settings.VALID_PER_CLASS:
-        exts.append('.val')
-    for i, ext in enumerate(exts):
-        path = titles_out_path + ext
-        adf = df.loc[df['test'] == i]
-        adf.to_csv(
-            path, columns=['label', 'titlen'], index=False, sep=' ',
-            header=False, quoting=QUOTE_NONE, escapechar=' '
-        )
-        dfs.append({
-            'path': path,
-            'df': adf,
-            'ext': ext,
-        })
-
-    print(
-        ', '.join([
-            '{} {}'.format(len(df['df']), df['ext'])
-            for df in dfs
-        ]),
-        '({} test classes)'.format(len(dfs[1]['df']['cat'].value_counts()))
-    )
-
-    options = {
-    }
+    options = {}
 
     if settings.VALID_PER_CLASS:
         options['autotuneValidationFile'] = dfs[2]['path']
@@ -94,6 +68,17 @@ def train_and_test(df):
     sure_correct = 0
     for idx, row in dfs[1]['df'].iloc[0:].iterrows():
         res = model.predict(row['titlen'])
+
+        def short_label(full_label):
+            return full_label.split('__')[-1]
+
+        preds.append({
+            'cat': short_label(row['label']),
+            'pred': short_label(res[0][0]),
+            'conf': res[1][0],
+            'title': row['titlen'],
+        })
+
         corr = '<>'
         confidence = res[1][0]
         if confidence > settings.MIN_CONFIDENCE:
@@ -123,20 +108,28 @@ def train_and_test(df):
 
 ress = []
 t0 = time.time()
+preds = []
 for i in range(0, settings.TRAIN_REPEAT):
     print('trial {}/{}'.format(i + 1, settings.TRAIN_REPEAT))
-    ress.append(train_and_test(df))
+    ress.append(train_and_test(df, preds))
 t1 = time.time()
 
-accs = [r['acc'] for r in ress]
-acc_avg = sum(accs) / len(ress)
-acc_min = min(accs)
-acc_max = max(accs)
+preds = pd.DataFrame(preds)
+df_confusion = utils.get_confusion_matrix(preds)
 
-print('avg: {:.2f} [{:.2f}, {:.2f}], depth: {}, {} trials, {} dims, {} epochs, (Embedddings: {}), {:.1f} minutes.'.format(
-    acc_avg, acc_min, acc_max,
-    settings.CAT_DEPTH,
-    settings.TRAIN_REPEAT,
-    settings.DIMS, settings.EPOCHS, settings.EMBEDDING_FILE,
-    (t1-t0)/60
-))
+utils.render_confusion(df_confusion, preds)
+
+
+if 0:
+    accs = [r['acc'] for r in ress]
+    acc_avg = sum(accs) / len(ress)
+    acc_min = min(accs)
+    acc_max = max(accs)
+
+    print('avg: {:.2f} [{:.2f}, {:.2f}], depth: {}, {} trials, {} dims, {} epochs, (Embedddings: {}), {:.1f} minutes.'.format(
+        acc_avg, acc_min, acc_max,
+        settings.CAT_DEPTH,
+        settings.TRAIN_REPEAT,
+        settings.DIMS, settings.EPOCHS, settings.EMBEDDING_FILE,
+        (t1-t0)/60
+    ))

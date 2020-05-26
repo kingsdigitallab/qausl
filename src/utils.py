@@ -2,6 +2,8 @@ import os
 import re
 import pandas as pd
 import settings
+import fasttext
+from _csv import QUOTE_NONE
 
 def get_data_path(*path_parts):
     '''e.g. get_data_path('in', 'myfile.txt', makedirs=True)
@@ -13,11 +15,13 @@ def get_data_path(*path_parts):
 
     return ret
 
+
 def read_file(path):
     with open(path, 'rt', encoding='utf-8') as fh:
         ret = fh.read()
 
     return ret
+
 
 def read_df_from_titles(path):
     '''returns a pandas dataframe from a titles.txt input file
@@ -46,6 +50,7 @@ def read_df_from_titles(path):
     df['cat1'].replace({'73': '703'}, inplace=True)
 
     return df
+
 
 def split_dataset(df, depth=3, cat_train=2, cat_test=2, cat_valid=0):
     '''
@@ -76,26 +81,32 @@ def split_dataset(df, depth=3, cat_train=2, cat_test=2, cat_valid=0):
     # print(vc)
 
     # split train - test
-    df['test'] = 0
+    df['test'] = -1
     for idx, row in df.iterrows():
         cat = row['cat']
         left = vc.get(cat, 0)
-        if left:
-            vc[cat] = left - 1
+        if left > 0:
             df.loc[idx, 'test'] = 1 if (left > cat_valid) else 2
+        else:
+            if left > - settings.TRAIN_PER_CLASS_MAX:
+                df.loc[idx, 'test'] = 0
+        vc[cat] = left - 1
 
     # df = df.append(get_class_titles(depth))
 
     return df
+
 
 def print_results(N, p, r):
     print("N\t" + str(N))
     print("P@{}\t{:.3f}".format(1, p))
     print("R@{}\t{:.3f}".format(1, r))
 
+
 SEVERITY_INFO = 10
 SEVERITY_WARNING = 20
 SEVERITY_ERROR = 30
+
 
 def log(message, severity=SEVERITY_INFO):
     severities = {
@@ -107,12 +118,13 @@ def log(message, severity=SEVERITY_INFO):
     if severity >= SEVERITY_ERROR:
         exit()
 
+
 def log_error(message):
     log(message, SEVERITY_ERROR)
 
-def extract_transcripts_from_pdfs():
 
-    fh = open(get_data_path('out', 'transcripts.txt'), 'wb')
+def extract_transcripts_from_pdfs():
+    fh = open(settings.TRANSCRIPTS_PATH, 'wb')
 
     import textract
     from pathlib import Path
@@ -129,8 +141,8 @@ def extract_transcripts_from_pdfs():
 
     fh.close()
 
-def get_class_titles(depth=3):
 
+def get_class_titles(depth=3):
     classes = {}
 
     content = read_file(get_data_path('in', 'classes.txt'))
@@ -143,7 +155,7 @@ def get_class_titles(depth=3):
             'cat1': cls_num,
             'cat2': '',
             'cat': cls_num,
-            'id': 'cls_'+cls_num,
+            'id': 'cls_' + cls_num,
             'test': 0,
         }
         # print(cls)
@@ -165,3 +177,117 @@ def get_class_titles(depth=3):
     ret = pd.DataFrame(data)
 
     return ret
+
+def save_ft_sets(df, titles_out_path):
+    # prepare the label for fasttext format
+    df['label'] = df['cat'].apply(lambda v: '__label__{}'.format(v))
+
+    # save train and test set
+    dfs = []
+    exts = ['.trn', '.tst']
+    if settings.VALID_PER_CLASS:
+        exts.append('.val')
+    for i, ext in enumerate(exts):
+        path = titles_out_path + ext
+        adf = df.loc[df['test'] == i]
+        adf.to_csv(
+            path, columns=['label', 'titlen'], index=False, sep=' ',
+            header=False, quoting=QUOTE_NONE, escapechar=' '
+        )
+        dfs.append({
+            'path': path,
+            'df': adf,
+            'ext': ext,
+        })
+
+    print(
+        ', '.join([
+            '{} {}'.format(len(df['df']), df['ext'])
+            for df in dfs
+        ]),
+        '({} test classes)'.format(len(dfs[1]['df']['cat'].value_counts()))
+    )
+
+    return dfs
+
+def learn_embeddings_from_transcipts():
+    model = fasttext.train_unsupervised(settings.TRANSCRIPTS_PATH)
+    print(len(model.words))
+    model.save_model(settings.TRANSCRIPTS_MODEL_PATH)
+
+def get_confusion_matrix(preds):
+
+    ret = pd.crosstab(
+        preds['cat'],
+        preds['pred'],
+        rownames=['Actual'],
+        colnames=['Predicted'],
+        margins=True,
+        # won't work, still a bug in pandas
+        dropna=False
+    )
+
+    # fix for missing columns
+    i = 0
+    cols = ret.columns.tolist()
+    rows = ret.index.tolist()
+    labels = sorted(list(set(cols + rows)))
+    for i, label in enumerate(labels):
+        if label not in cols:
+            ret.insert(i, label, 0)
+        if label not in rows:
+            ret.loc[label] = 0
+
+    ret = ret.sort_index()
+
+    return ret
+
+
+def get_exp_key():
+    return '{}d-{}ep-{}tr-{}'.format(
+        settings.DIMS,
+        settings.EPOCHS,
+        settings.TRAIN_REPEAT,
+        settings.EMBEDDING_FILE,
+    )
+
+
+def render_confusion(df_confusion, preds):
+    import seaborn as sn
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    # print(df_confusion)
+
+    fig = plt.figure()
+    ax1 = fig.add_subplot(111)
+
+    df_confusion[df_confusion == 0] = np.nan
+
+    sn.heatmap(
+        df_confusion,
+        annot=True,
+        vmax=max(df_confusion.iloc[0])*1.5,
+        fmt='g',
+        ax=ax1,
+        annot_kws={'size': 5},
+        cmap='Blues',
+        linecolor='#ccc',
+        linewidths=0.5,
+    )
+    # plt.show()
+    ax1.title.set_text('{}% accuracy'.format(
+        int(len(preds.loc[preds['pred'] == preds['cat']]) / len(preds) * 100)
+    ))
+
+    ax1.tick_params(axis='both', which='both', labelsize=6)
+
+    import numpy as np
+    ax1.set_yticks(np.arange(len(df_confusion)))
+    ax1.set_xticks(np.arange(len(df_confusion.columns.tolist())))
+    ax1.set_yticklabels(df_confusion.index.tolist())
+    ax1.set_xticklabels(df_confusion.columns.tolist(), rotation=90)
+    ax1.set_xticks([float(n) + 0.5 for n in ax1.get_xticks()])
+    ax1.set_yticks([float(n) + 0.5 for n in ax1.get_yticks()])
+
+    plt.savefig(get_data_path('out', get_exp_key() + '.svg'))
