@@ -13,6 +13,7 @@
 011. Naturalization (individual or small groups only).
 012. Dignities (e.g. peerage creations).
 019. Miscellaneous.
+
 1. Government.
 10. Executive.
 100. The Crown.
@@ -203,6 +204,7 @@
 764. Other raw materials.
 765. Other finished products.
 769. Miscellaneous.
+
 8. Communications.
 80. Water.
 800. Rivers.

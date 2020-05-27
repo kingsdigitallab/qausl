@@ -23,6 +23,7 @@ TODO re-balance training set
     CHECK by removing samples
         seems to correct biggest spill out mistakes and increases accuracy by 3-4%
 remove acts/resolution
+exploit hierarchical relationships
 
 Conclusions
 -----------

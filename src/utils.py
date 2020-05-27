@@ -145,6 +145,11 @@ def extract_transcripts_from_pdfs():
 
     fh.close()
 
+def tokenise_title(title):
+    ret = re.sub(r'\W+', ' ', title.lower())
+    ret = re.sub(r'\b(further|chap|sic|a|of|and|an|the|to|act|supplement|for|resolution|entituled|chapter)\b', '', ret)
+    ret = re.sub(r'\W+', ' ', ret)
+    return ret
 
 def get_class_titles(depth=3):
     classes = {}
@@ -155,7 +160,7 @@ def get_class_titles(depth=3):
         cls_num = cls[0]
         cls = {
             'title': cls[1],
-            'titlen': re.sub(r'\W', ' ', cls[1].lower()),
+            'titlen': tokenise_title(cls[1]),
             'cat1': cls_num,
             'cat2': '',
             'cat': cls_num,

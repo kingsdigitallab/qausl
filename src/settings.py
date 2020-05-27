@@ -23,18 +23,15 @@ DIMS = 100
 
 # pre-existing embeddings file
 # EMBEDDING_FILE = 'wiki-news-300d-1M-subword.vec'
-# EMBEDDING_FILE = 'Law2Vec.100d.txt'
-EMBEDDING_FILE = None
+EMBEDDING_FILE = 'Law2Vec.100d.txt'
+# EMBEDDING_FILE = None
 
 # 1, 2 or 3: the depth of the taxonomy for the classification
-CAT_DEPTH = 1
+CAT_DEPTH = 3
 
 # how many times we repeat training over different train/test splits
 # 30 trials should be enough to remove variation, but long to run
-TRAIN_REPEAT = 5
-
-# minimum degree of confidence for each prediction
-MIN_CONFIDENCE = 0.96
+TRAIN_REPEAT = 40
 
 # how many test sample per class
 # default 2
@@ -42,17 +39,22 @@ TEST_PER_CLASS = 2
 
 # minimum number of training samples per class
 # default 1
-TRAIN_PER_CLASS = 1
+TRAIN_PER_CLASS = 2
 
-TRAIN_PER_CLASS_MAX = 1000
+# 60 for level 1, 40 level 2, 25 level 3
+TRAIN_PER_CLASS_MAX = 25
 
 # how many validation sample per class
 # 0 means we don't use validation
-# default 1
-VALID_PER_CLASS = 1
+# default 1 or 2
+VALID_PER_CLASS = 0
 
 # FT auto-tuning in in seconds
 # FT recommends 300+, 20-60s for small dataset is ok
-AUTOTUNE_DURATION = 30
+AUTOTUNE_DURATION = 20
 
-REPORT_CONFIDENCES = [0, 0.5, 0.75, 0.85, 0.9, 0.92, 0.95, 0.96, 0.98, 0.99, 0.995]
+REPORT_CONFIDENCES = [0, 0.5, 0.75, 0.85, 0.9, 0.95, 0.96, 0.99, 0.995, 0.999, 0.9995]
+
+# minimum degree of confidence for each prediction
+MIN_CONFIDENCE = 0.96
+

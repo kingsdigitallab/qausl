@@ -29,7 +29,7 @@ df.to_csv(titles_out_path, columns=['id', 'cat1', 'cat2', 'title'], index=False)
 
 # augment dataframe with preprocessed fields
 # normalise the title
-df['titlen'] = df['title'].apply(lambda v: re.sub(r'\W', ' ', v.lower()))
+df['titlen'] = df['title'].apply(lambda v: utils.tokenise_title(v))
 
 def train_and_test(df, preds):
     ret = {}
