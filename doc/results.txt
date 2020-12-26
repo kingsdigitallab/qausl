@@ -8,6 +8,15 @@ acceptable?: precision > 95%, recall >
 Improvements
 ------------
 
+Clean the full text
+Use Bert
+Address imbalance
+Try TFIDF+KNN
+Try NB
+S Check secondary categories
+Analyse ceiling
+S lump all the under-represented classes together
+
 DONE add cat titles to the training set
     not beneficial
 DONE use autotune with validation set
@@ -38,30 +47,44 @@ This method needs sufficient
 ? might be possible to use imperfect text but need some automated cleanup
 
 Recommendations:
-More data (500-1500 more), especially for underrepresented classes
-Would start with software to extract titles from OCRed pdfs (also split texts)
+DONE More data (500-1500 more), especially for underrepresented classes
+    Doesn't improve L1, but does with L2 & 3 (10% each)
+DONE Would start with software to extract titles from OCRed pdfs (also split texts)
 Some regexp (e.g. ref to others), simple heuristics could also help pre-process things
 Semi-automated process with feedback loop would be more realistic
 
 To explore:
-Use more training data
-Use article text for classification
+DONE Use more training data
+DONE Use article text for classification
+    Worse performance (apart from L1)
 Try different classifiers (e.g. recurrent net, Flair, Bert)
 
 Questions
 ---------
 
-Q1a: how much prediction errors affected by under-representation of some classes?
+DONE Q1a: how much prediction errors affected by under-representation of some classes?
     => return confusion matrix and compare with class distribution
     depth 1: yes, over-represented classes steal from under-represented ones (1, 2, 7 from 5, 3 & 6)
     see confusion matrix:
         acc/cl = diag/tot,
         prec = diag / bottom, (i.e. matching colors = excellent)
         rec = diag / right (i.e. diag is orange = excellent)
-Q1b: if there is a strong correlation, can we estimate how many sample/class are needed to get much better results?
+DONE Q1b: if there is a strong correlation, can we estimate how many sample/class are needed to get much better results?
 
-Q2: what is the cut-off confidence level? And what automation benefit can we expect from it?
+DONE Q2: what is the cut-off confidence level? And what automation benefit can we expect from it?
     => return a table showing the rec+prec matrix for class vs confidence cut-off
+
+26 dec
+Q3. Which mistakes are the worst in L1?
+    Best classes: 4, 0, 8
+    Worst classes (titles): 2, 1 (stolen by 2, 8), 6 (stolen by 3, 4, 8)
+    Worst classes (fulltx):    1 (stolen by 2, 3), 6 (stolen by 7, 4   ), 7
+    Finance8 steals from Gov1, and Religion4 steals from Social6
+    Under-represented: 5 (50 instead of 40)
+    => no correlation b/w class size and error rate
+
+0. personal, 1. gov, 2. finance, 3. law and order,
+4. religion, 5. defence, 6. social, 7. economy, 8. comms
 
 Reading
 -------

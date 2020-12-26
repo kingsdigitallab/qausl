@@ -3,6 +3,7 @@ import re
 import pandas as pd
 import settings
 import fasttext
+import seaborn as sn
 from _csv import QUOTE_NONE
 
 def get_data_path(*path_parts):
@@ -17,14 +18,60 @@ def get_data_path(*path_parts):
 
 
 def read_file(path):
-    with open(path, 'rt', encoding='utf-8') as fh:
-        ret = fh.read()
+    ret = ''
+
+    if os.path.exists(path):
+        with open(path, 'rt', encoding='utf-8') as fh:
+            ret = fh.read()
 
     return ret
 
 
-def read_df_from_titles(path):
-    '''returns a pandas dataframe from a titles.txt input file
+def read_df_from_titles(path, use_full_text):
+    fct = None
+    if path.endswith('.txt'):
+        fct = read_df_from_titles_txt
+    if path.endswith('.csv'):
+        fct = read_df_from_titles_csv
+
+    return fct(path, use_full_text)
+
+
+def read_df_from_titles_csv(path, use_full_text):
+    '''returns a pandas dataframe from titles.csv
+    dataframe columns:
+        title, id, cat, cat1, cat2
+    cat1 is the 3 digit category, e.g. 156
+    cat2 is an alternative categorisation for the same chapter.
+    '''
+    df = pd.read_csv(path)
+
+    input_column = 'Title'
+    if use_full_text:
+        input_column = 'Text'
+
+    # split multiple categories into cat1 and cat2
+    df = df.rename(columns={
+        'Chapter': 'id',
+        'Class 3': 'cat1',
+        '1st alt Class 3': 'cat2',
+        input_column: 'title',
+    })
+
+    # IMPORTANT: pad cat1 & cat2 with 0s
+    df['cat1'] = df['cat1'].apply(lambda c: str(c).zfill(3))
+    df['cat2'] = df['cat2'].apply(lambda c: str(c).zfill(3))
+
+    return df
+
+
+def read_df_from_titles_txt(path, use_full_text):
+    '''returns a pandas dataframe from titles.txt
+
+    e.g. of an input line:
+
+    An ACT for establishing a nightly watch [...] Philadelphia. 21 (601/603)
+
     dataframe columns:
         title, id, cat, cat1, cat2
     '''
@@ -47,7 +94,7 @@ def read_df_from_titles(path):
     df = df.join(df['cat'].str.split(r'/', 1, expand=True)).rename(columns={0: 'cat1', 1: 'cat2'})
 
     # bug in the input file: 73 stands for 703, it seems
-    df['cat1'].replace({'73': '703'}, inplace=True)
+    # df['cat1'].replace({'73': '703'}, inplace=True)
 
     return df
 
@@ -65,13 +112,11 @@ def split_dataset(df, depth=3, cat_train=2, cat_test=2, cat_valid=0):
     # shuffle the data
     df = df.sample(frac=1, random_state=settings.SAMPLE_SEED).reset_index(drop=True)
     # create new col with desired cat depth
-    df['cat'] = df['cat1'].apply(lambda v: v[:depth])
+    df['cat'] = df['cat1'].apply(lambda v: str(v)[:depth])
     # count cats
     vc = df['cat'].value_counts()
 
-    if 0:
-        # save number of samples per class
-        vc.to_csv(get_data_path('out', 'cat-{}.csv'.format(depth)))
+    save_category_distribution(vc)
 
     # only get cat which have enough samples
     vc = vc.where(lambda x: x >= (cat_train + cat_test + cat_valid)).dropna()
@@ -127,10 +172,38 @@ def log_error(message):
     log(message, SEVERITY_ERROR)
 
 
+def extract_text_from_pdf(pdf_path, use_tesseract=False):
+    '''
+    :param pdf_path: path to a pdf file
+    :param use_tesseract: if True, OCR with tesseract;
+        extract embedded text otherwise.
+    :return: utf-8 string with the text content of the pdf
+    '''
+    if use_tesseract:
+        import textract
+        try:
+            ret = textract.process(
+                pdf_path,
+                method='tesseract',
+                language='eng',
+                encoding='utf-8'
+            )
+            ret = ret.decode('utf8')
+        except UnicodeDecodeError as e:
+            ret = f'ERROR: {e}'
+    else:
+        import fitz  # this is pymupdf
+        with fitz.open(pdf_path) as doc:
+            ret = ''
+            for page in doc:
+                ret += page.getText()
+
+    return ret
+
+
 def extract_transcripts_from_pdfs():
     fh = open(settings.TRANSCRIPTS_PATH, 'wb')
 
-    import textract
     from pathlib import Path
     paths = list(Path(get_data_path('in', 'pdfs')).rglob("*TEXT*.pdf"))
 
@@ -139,17 +212,24 @@ def extract_transcripts_from_pdfs():
         print(p)
         fh.write(('\n\nNEWFILE {}\n\n'.format(os.path.basename(p))).encode('utf-8'))
 
-        content = textract.process(p, method='tesseract', language='eng')
+        content = extract_text_from_pdf(p, use_tesseract=True)
+        # content = textract.process(p, method='tesseract', language='eng')
 
         fh.write(content)
 
     fh.close()
 
+
 def tokenise_title(title):
-    ret = re.sub(r'\W+', ' ', title.lower())
-    ret = re.sub(r'\b(further|chap|sic|a|of|and|an|the|to|act|supplement|for|resolution|entituled|chapter)\b', '', ret)
+    ret = title.lower()
+    # reunite hyphenated words
+    ret = re.sub(r'(\w)\s*-\s*(\w)', r'\1\2', ret)
+    ret = re.sub(r'\b\w{1,2}\b', r' ', ret)
+    ret = re.sub(r'\d+', r' ', ret)
+    ret = re.sub(r'\b(further|chap|sic|a|of|and|an|the|to|act|supplement|for|resolution|entituled|chapter|section)\b', '', ret)
     ret = re.sub(r'\W+', ' ', ret)
     return ret
+
 
 def get_class_titles(depth=3):
     classes = {}
@@ -187,6 +267,7 @@ def get_class_titles(depth=3):
 
     return ret
 
+
 def save_ft_sets(df, titles_out_path):
     # prepare the label for fasttext format
     df['label'] = df['cat'].apply(lambda v: '__label__{}'.format(v))
@@ -194,8 +275,8 @@ def save_ft_sets(df, titles_out_path):
     # save train and test set
     dfs = []
     exts = ['.trn', '.tst']
-    if settings.VALID_PER_CLASS:
-        exts.append('.val')
+    # if settings.VALID_PER_CLASS:
+    exts.append('.val')
     for i, ext in enumerate(exts):
         path = titles_out_path + ext
         adf = df.loc[df['test'] == i]
@@ -219,10 +300,12 @@ def save_ft_sets(df, titles_out_path):
 
     return dfs
 
+
 def learn_embeddings_from_transcipts():
     model = fasttext.train_unsupervised(settings.TRANSCRIPTS_PATH)
     print(len(model.words))
     model.save_model(settings.TRANSCRIPTS_MODEL_PATH)
+
 
 def get_confusion_matrix(preds):
 
@@ -253,22 +336,27 @@ def get_confusion_matrix(preds):
 
 
 def get_exp_key():
+    '''Returns a string that summarises the settings of the
+    training process.'''
     auto = ''
     if settings.VALID_PER_CLASS:
         auto = '-{}a'.format(settings.AUTOTUNE_DURATION)
 
-    return '{}l-{}d-{}ep-{}tr-{}{}'.format(
+    return '{}-{}l-{}d-{}ep-{}tr-{}cap-{}ds-{}-{}{}'.format(
+        settings.CLASSIFIER,
         settings.CAT_DEPTH,
         settings.DIMS,
         settings.EPOCHS,
-        settings.TRAIN_REPEAT,
+        settings.TRIALS,
+        settings.TRAIN_PER_CLASS_MAX,
+        re.sub(r'^\D+(\d+).*?$', r'\1', settings.TITLES_FILENAME),
+        'fulltxt' if settings.FULL_TEXT else 'titles',
         settings.EMBEDDING_FILE,
         auto
     )
 
 
 def render_confusion(df_confusion, preds, fmt='g', vmax=None, fname='conf'):
-    import seaborn as sn
     import matplotlib.pyplot as plt
     import numpy as np
 
@@ -312,7 +400,24 @@ def render_confusion(df_confusion, preds, fmt='g', vmax=None, fname='conf'):
 
     plt.savefig(get_data_path(settings.PLOT_PATH, get_exp_key() + '-' + fname + '.svg'))
 
+
 def render_confidence_matrix(preds):
+    '''
+    :param preds: a dataframe with predictions, columns:
+        cat: true class
+        pred: predicted class
+        conf: level of confidence of the prediction
+    :return: array of recall and precision
+        for a range of confidence level
+        for all the classes & overall
+        [
+            {'cat': '1 P', '0': '0.43', '0.5': '0.53'}
+            {'cat': '1 R', '0': '0.70', '0.5': '0.67'}
+            2 P
+            2 R
+            ...
+        ]
+    '''
 
     ret = []
 
@@ -342,9 +447,64 @@ def render_confidence_matrix(preds):
         })
         ret[-1]['cat'] = cat + ' R'
 
-
     ret = pd.DataFrame(ret).set_index('cat', drop=True)
 
     render_confusion(ret, preds, '.2f', 1.0, fname='roc')
 
     return ret
+
+
+def get_roman_from_int(num):
+    num_map = [(1000, 'M'), (900, 'CM'), (500, 'D'), (400, 'CD'), (100, 'C'),
+               (90, 'XC'),
+               (50, 'L'), (40, 'XL'), (10, 'X'), (9, 'IX'), (5, 'V'),
+               (4, 'IV'), (1, 'I')]
+
+    ret = ''
+
+    while num > 0:
+        for i, r in num_map:
+            while num >= i:
+                ret += r
+                num -= i
+
+    return ret
+
+
+def save_category_distribution(categories_count):
+    '''
+    :param categories_count: A panda Series: category -> number of titles
+    Save the distribution as a SVG.
+    '''
+    depth = len(categories_count.first_valid_index())
+    # save as bar chart
+    vc_df = categories_count.to_frame().reset_index()
+    vc_df = vc_df.rename(columns={'cat': 'titles'})
+    vc_df['cat1'] = vc_df['index'].apply(lambda x: x[0])
+    sn.set_theme(style='whitegrid')
+
+    from matplotlib import pyplot
+    # make graph taller so bars and their labels are readable
+    pyplot.figure(figsize=(10, 20/3*depth))
+
+    ax = sn.barplot(
+        y='index', x='titles',
+        data=vc_df.reset_index(),
+        hue='cat1', dodge=False,
+    )
+    fig = ax.get_figure()
+    fig.savefig(get_data_path('out', f'cat-{depth}.svg'))
+
+    # save as CSV
+    vc_df['category'] = vc_df['index']
+    vc_df.to_csv(
+        get_data_path('out', f'cat-{depth}.csv'),
+        columns=['category', 'titles'],
+        index=False,
+    )
+
+
+def short_label(full_label):
+    '''Returns XXX from label__XXX.
+    label__XXX is fasttext format for training sample labels.'''
+    return full_label.split('__')[-1]
