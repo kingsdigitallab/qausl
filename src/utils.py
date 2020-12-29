@@ -1,3 +1,4 @@
+import math
 import os
 import re
 import pandas as pd
@@ -40,9 +41,9 @@ def read_df_from_titles(path, use_full_text):
 def read_df_from_titles_csv(path, use_full_text):
     '''returns a pandas dataframe from titles.csv
     dataframe columns:
-        title, id, cat, cat1, cat2
-    cat1 is the 3 digit category, e.g. 156
-    cat2 is an alternative categorisation for the same chapter.
+        title, id, cat1, cat2
+    cat1 is the primary 3 digit category, e.g. 156
+    cat2 is an secondary category for the same chapter.
     '''
     df = pd.read_csv(path)
 
@@ -59,8 +60,11 @@ def read_df_from_titles_csv(path, use_full_text):
     })
 
     # IMPORTANT: pad cat1 & cat2 with 0s
-    df['cat1'] = df['cat1'].apply(lambda c: str(c).zfill(3))
-    df['cat2'] = df['cat2'].apply(lambda c: str(c).zfill(3))
+    def clean_cat(cat):
+        # e.g. 0.2 => 002
+        return re.sub(r'\..*', r'', str(cat))[:3].zfill(3)
+    df['cat1'] = df['cat1'].apply(clean_cat)
+    df['cat2'] = df['cat2'].apply(clean_cat)
 
     return df
 
@@ -73,7 +77,7 @@ def read_df_from_titles_txt(path, use_full_text):
     An ACT for establishing a nightly watch [...] Philadelphia. 21 (601/603)
 
     dataframe columns:
-        title, id, cat, cat1, cat2
+        title, id, cat1, cat2
     '''
     content = read_file(path)
 
@@ -87,11 +91,11 @@ def read_df_from_titles_txt(path, use_full_text):
             print(sorted(diff))
             exit()
 
-    labels = ['title', 'id', 'cat']
+    labels = ['title', 'id', 'cat_slash']
     df = pd.DataFrame.from_records(titles, columns=labels)
 
     # split multiple categories into cat1 and cat2
-    df = df.join(df['cat'].str.split(r'/', 1, expand=True)).rename(columns={0: 'cat1', 1: 'cat2'})
+    df = df.join(df['cat_slash'].str.split(r'/', 1, expand=True)).rename(columns={0: 'cat1', 1: 'cat2'})
 
     # bug in the input file: 73 stands for 703, it seems
     # df['cat1'].replace({'73': '703'}, inplace=True)
@@ -112,9 +116,10 @@ def split_dataset(df, depth=3, cat_train=2, cat_test=2, cat_valid=0):
     # shuffle the data
     df = df.sample(frac=1, random_state=settings.SAMPLE_SEED).reset_index(drop=True)
     # create new col with desired cat depth
-    df['cat'] = df['cat1'].apply(lambda v: str(v)[:depth])
+    df['cat1'] = df['cat1'].apply(lambda v: str(v)[:depth])
+    df['cat2'] = df['cat2'].apply(lambda v: str(v)[:depth])
     # count cats
-    vc = df['cat'].value_counts()
+    vc = df['cat1'].value_counts()
 
     save_category_distribution(vc)
 
@@ -125,7 +130,7 @@ def split_dataset(df, depth=3, cat_train=2, cat_test=2, cat_valid=0):
     # split 0:train - 1:test - 2:valid
     df['test'] = -1
     for idx, row in df.iterrows():
-        cat = row['cat']
+        cat = row['cat1']
         left = vc.get(cat, 0)
         if left > 0:
             df.loc[idx, 'test'] = 1 if (left > cat_valid) else 2
@@ -222,17 +227,23 @@ def extract_transcripts_from_pdfs():
 
 def tokenise_title(title):
     ret = title.lower()
-    # reunite hyphenated words
-    ret = re.sub(r'(\w)\s*-\s*(\w)', r'\1\2', ret)
+    # remove small words
     ret = re.sub(r'\b\w{1,2}\b', r' ', ret)
+    # remove digits
+    # TODO: use D
     ret = re.sub(r'\d+', r' ', ret)
+    # remove non-discriminant words
     ret = re.sub(r'\b(further|chap|sic|a|of|and|an|the|to|act|supplement|for|resolution|entituled|chapter|section)\b', '', ret)
+    # remove all non-words
     ret = re.sub(r'\W+', ' ', ret)
     return ret
 
 
 def get_class_titles(depth=3):
-    classes = {}
+    '''Returns a dataframe of categories of level=depth.
+    Columns: title, cat1
+    '''
+    ret = {}
 
     content = read_file(get_data_path('in', 'classes.txt'))
 
@@ -240,14 +251,9 @@ def get_class_titles(depth=3):
         cls_num = cls[0]
         cls = {
             'title': cls[1],
-            'titlen': tokenise_title(cls[1]),
             'cat1': cls_num,
-            'cat2': '',
-            'cat': cls_num,
-            'id': 'cls_' + cls_num,
             'test': 0,
         }
-        # print(cls)
         classes[cls_num] = cls
 
     data = []
@@ -260,17 +266,13 @@ def get_class_titles(depth=3):
                 parent = classes.get(num)
                 if parent:
                     cls['title'] += ' ' + parent['title']
-                    cls['titlen'] += ' ' + parent['titlen']
-            # print(cls)
 
-    ret = pd.DataFrame(data)
-
-    return ret
+    return pd.DataFrame(ret)
 
 
 def save_ft_sets(df, titles_out_path):
     # prepare the label for fasttext format
-    df['label'] = df['cat'].apply(lambda v: '__label__{}'.format(v))
+    df['label'] = df['cat1'].apply(lambda v: '__label__{}'.format(v))
 
     # save train and test set
     dfs = []
@@ -295,7 +297,7 @@ def save_ft_sets(df, titles_out_path):
             '{} {}'.format(len(df['df']), df['ext'])
             for df in dfs
         ]),
-        '({} test classes)'.format(len(dfs[1]['df']['cat'].value_counts()))
+        '({} test classes)'.format(len(dfs[1]['df']['cat1'].value_counts()))
     )
 
     return dfs
@@ -357,6 +359,53 @@ def get_exp_key():
 
 
 def render_confusion(df_confusion, preds, fmt='g', vmax=None, fname='conf'):
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    # print(df_confusion)
+
+    number_of_classes = len(df_confusion)
+    fig = plt.figure(figsize=[s / 25 * number_of_classes for s in [15, 10]])
+    # ax1 = fig.add_subplot(111)
+
+    df_confusion[df_confusion == 0] = np.nan
+
+    if vmax is None:
+        vmax = max(df_confusion.iloc[0])*1.5
+
+    ax1 = sn.heatmap(
+        df_confusion,
+        annot=True,
+        vmax=vmax,
+        fmt=fmt,
+        # ax=ax1,
+        annot_kws={'size': 8},
+        cmap='Blues',
+        linecolor='#ccc',
+        linewidths=0.5,
+    )
+    # plt.show()
+    ax1.title.set_text('Confusion matrix ({}% accuracy)'.format(
+        int(len(preds.loc[preds['pred'] == preds['cat']]) / len(preds) * 100)
+    ))
+
+    if 0:
+        ax1.tick_params(axis='both', which='both', labelsize=6)
+
+        import numpy as np
+        ax1.set_yticks(np.arange(len(df_confusion)))
+        ax1.set_xticks(np.arange(len(df_confusion.columns.tolist())))
+        ax1.set_yticklabels(df_confusion.index.tolist())
+        ax1.set_xticklabels(df_confusion.columns.tolist(), rotation=90)
+        ax1.set_xticks([float(n) + 0.5 for n in ax1.get_xticks()])
+        ax1.set_yticks([float(n) + 0.5 for n in ax1.get_yticks()])
+
+        ax1.xaxis.tick_top()
+
+    plt.savefig(get_data_path(settings.PLOT_PATH, get_exp_key() + '-' + fname + '.svg'))
+
+
+def render_confusion_old(df_confusion, preds, fmt='g', vmax=None, fname='conf'):
     import matplotlib.pyplot as plt
     import numpy as np
 
@@ -471,6 +520,14 @@ def get_roman_from_int(num):
     return ret
 
 
+def normalise_roman_number(roman_number):
+    '''returns a normalised string, which is more lenient for frequent
+    OCR errors. This normalisation will help comparing roman numbers
+    without much risk of false positives.'''
+    # replace nonsensical I/L, e.g. 1492: MCDLXCII => MCDXCII
+    return roman_number.upper().replace('O', 'C').replace('T', 'I').replace('L', 'I').replace('Y', 'V').replace('1', 'I').replace('IXC', 'XC')
+
+
 def save_category_distribution(categories_count):
     '''
     :param categories_count: A panda Series: category -> number of titles
@@ -478,28 +535,46 @@ def save_category_distribution(categories_count):
     '''
     depth = len(categories_count.first_valid_index())
     # save as bar chart
+    cat_num = len(categories_count)
     vc_df = categories_count.to_frame().reset_index()
-    vc_df = vc_df.rename(columns={'cat': 'titles'})
-    vc_df['cat1'] = vc_df['index'].apply(lambda x: x[0])
+    vc_df = vc_df.rename(columns={'cat1': 'chapters'})
+    vc_df['category'] = vc_df['index']
     sn.set_theme(style='whitegrid')
 
     from matplotlib import pyplot
     # make graph taller so bars and their labels are readable
     pyplot.figure(figsize=(10, 20/3*depth))
 
+    options = {}
+    if depth > 1:
+        vc_df['Level 1 category'] = vc_df['index'].apply(lambda x: x[0])
+        options['hue'] = 'Level 1 category'
+
     ax = sn.barplot(
-        y='index', x='titles',
-        data=vc_df.reset_index(),
-        hue='cat1', dodge=False,
+        y='category', x='chapters',
+        data=vc_df,
+        dodge=False, **options
     )
+
+    ax.set_title(f'Number of chapters per level {depth} category. ({cat_num} categories)')
+
+    # show count next to each bar
+    for p in ax.patches:
+        if not math.isnan(p.get_width()):
+            ax.annotate(
+                str(int(p.get_width())),
+                (p.get_width() + 3, p.get_y() + 0.5),
+                ha='left', va='bottom',
+                color='black'
+            )
     fig = ax.get_figure()
     fig.savefig(get_data_path('out', f'cat-{depth}.svg'))
+    pyplot.close()
 
     # save as CSV
-    vc_df['category'] = vc_df['index']
     vc_df.to_csv(
         get_data_path('out', f'cat-{depth}.csv'),
-        columns=['category', 'titles'],
+        columns=['category', 'chapters'],
         index=False,
     )
 
@@ -508,3 +583,17 @@ def short_label(full_label):
     '''Returns XXX from label__XXX.
     label__XXX is fasttext format for training sample labels.'''
     return full_label.split('__')[-1]
+
+
+def repair_ocred_text(text):
+    '''try to mend text OCRed from a PDF.'''
+    ret = text
+
+    # reunite hyphenated words (de-Syllabification)
+    ret = re.sub(r'(\w)\s*-\s*(\w)', r'\1\2', ret)
+
+    # remove line breaks
+    ret = re.sub(r'\s+', r' ', ret)
+
+    return ret
+

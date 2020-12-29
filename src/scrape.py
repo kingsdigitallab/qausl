@@ -1,9 +1,15 @@
 '''
-Not found:
+Download PDF files for a series of law chapter numbers
+found in our training CSV file provided by partners.
+Then extract the chapter texts from those PDFs.
+Finally insert the chapter text into a new column 'Text' of our training CSV.
+Note: each PDF contains a bit of the previous chapter and following one.
 '''
 import difflib
 import os
 import re
+from collections import Counter
+
 import pandas as pd
 import settings
 import urllib.request, urllib
@@ -57,7 +63,7 @@ def extract_chapters_from_texts(titles_df, limit=None):
         best = None
         options = []
 
-        # We extract the desired chapter from Tesseract first.
+        # We extract the desired chapter with Tesseract first.
         # If that doesn't work we fall back to the text embedded in the PDF.
         for j, prefix in enumerate(['', 'tes-']):
             filename = f"{prefix}{chapter_number}.txt"
@@ -71,10 +77,12 @@ def extract_chapters_from_texts(titles_df, limit=None):
                 best = j
 
         if best is None:
-            print(f'WARNING: chapter not found {chapter_number}')
+            print(f'WARNING: chapter roman number not found {chapter_number}')
         else:
             found += 1
-            titles_df.loc[titles_df['Chapter'] == chapter_number, "Text"] = options[best]['chapter']
+            text = utils.repair_ocred_text(options[best]['chapter'])
+
+            titles_df.loc[titles_df['Chapter'] == chapter_number, "Text"] = text
             # print('INFO: {} - {}'.format(chapter_number, options[best]['filename']))
 
     print('INFO: {} parsed. {} not found.'.format(limit, limit-found))
@@ -114,64 +122,95 @@ def extract_chapter_from_text(text, chapter_number):
     '''
     # clean up to facilitate matches of chapter number
     # Tesseract often reads O when it is written C
-    roman = roman.replace('L', 'I')
-    text_cleaned = re.sub(r'[^A-Z\n]+', r' ', text.upper().replace('1', 'I'))
-    text_cleaned = text_cleaned.replace('O', 'C').replace('L', 'I').replace('Y', 'V')
-    # replace nonsensical I/L, e.g. 1492: MCDLXCII => MCDXCII
-    text_cleaned = text_cleaned.replace('IXC', 'XC')
-    lines = [line.strip('. ') for line in text_cleaned.split('\n')]
+    text_normalised = re.sub(r'[^A-Z1-9\n]+', r' ', text.upper().replace('1', 'I'))
+    text_normalised = utils.normalise_roman_number(text_normalised)
+    lines = [line.strip('. ') for line in text_normalised.split('\n')]
 
-    marker = f'CHAPTER {roman}'
+    marker = utils.normalise_roman_number(f'CHAPTER {roman}')
     # list of lines with CHAPTER XXX
-    chapters = difflib.get_close_matches(marker, lines)
+    chapters = [
+        c for c in difflib.get_close_matches(marker, lines)
+        # exclude footnotes, e.g. *CHAPTER 1478
+        if not(re.search(r'\d', c) and len(c) < 16)
+    ]
+    # sort them by appearance rather than similarity.
+    # Similarity is not reliable due to corruption of the numbers by OCR.
+    chapters = [line for line in lines if line in chapters]
 
     start = None
     end = None
-    show = None
-    if len(chapters) > 1:
+    warning = 'NOT FOUND'
+    if len(chapters) == 1:
+        # only one match, we assume it's what we are after even if not perfect
+        start = lines.index(chapters[0])
+        end = len(lines)
+    elif len(chapters) > 1:
         # return a line which ends with the same roman number
-        exact_chapters = [ch for ch in chapters if ch.endswith(roman)]
-        if len(exact_chapters) == 1:
-            start = lines.index(exact_chapters[0])
-        else:
-            # search failed, we then look for next chapter number
-            roman_next = utils.get_roman_from_int(chapter_number + 1)
-            roman_next = roman_next.replace('L', 'I')
-            exact_chapters = [ch for ch in chapters if
-                              ch.endswith(roman_next)]
-            if len(exact_chapters) == 1:
-                end = lines.index(exact_chapters[0])
+        start = find_exact_chapter_number(chapter_number, chapters, lines)
+        # line for next chapter number
+        end = find_exact_chapter_number(chapter_number + 1, chapters, lines)
+        if start is not None and end is not None and not(chapters.index(lines[end]) == chapters.index(lines[start]) + 1):
+            warning = 'NEXT != THIS + 1'
+            start = None
+            end = None
+        if start is None:
+            if end is not None:
                 start = max([
                     lines.index(ch)
                     for ch in chapters
                     if lines.index(ch) < end
                 ] + [
-                    0
+                    -1
                 ])
-                show = 0
-    elif len(chapters) == 1:
-        # only one match, we assume it's what we are after even if not perfect
-        start = lines.index(chapters[0])
+                if start == -1:
+                    warning = 'NEXT is first'
+                    start = None
+
+    if 1 and start is None:
+        # heuristic: if no good match AND we have two candidate chapters
+        # then pick the first candidate.
+        if len(chapters) == 2:
+            print(chapters)
+            start = lines.index(chapters[0])
+            end = lines.index(chapters[1], start+1)
 
     # now get all the lines between start and end
-    if start and not end:
-        end = min([
-            lines.index(ch)
-            for ch in chapters
-            if lines.index(ch) > start
-        ] + [
-            len(lines)
-        ])
-
     if start is not None:
+        if end is None:
+            end = min([
+                lines.index(ch)
+                for ch in chapters
+                if lines.index(ch) > start
+            ] + [
+                len(lines)
+            ])
+            if end != len(lines) and lines[end]:
+                if re.findall(r'\d', lines[end]):
+                    warning = 'END might be a footnote'
+        if re.findall(r'\d', lines[start]):
+            warning = 'START might be a footnote'
+
+        # extract lines [start:end] from the non-normalised text
         lines = text.split('\n')
         ret = '\n'.join(lines[start:end])
-        if show:
-            print(chapter_number, repr(marker), chapters)
-            print(ret)
 
     if not ret:
-        print(chapter_number, repr(marker), chapters)
+        print(chapter_number, repr(marker), chapters, warning)
+
+    return ret
+
+
+def find_exact_chapter_number(number, candidates_lines, all_lines):
+    '''return index of the line with an exact match for given number'''
+    ret = None
+    roman = utils.get_roman_from_int(number)
+    roman_normalised = utils.normalise_roman_number(roman)
+    exact_chapters = [
+        ch for ch in candidates_lines
+        if ch.endswith(roman_normalised)
+    ]
+    if len(exact_chapters) == 1:
+        ret = all_lines.index(exact_chapters[0])
 
     return ret
 
@@ -266,4 +305,43 @@ def get_first_chapter_from_pdf_text(text, print_chapters=False, chapter_number=N
     return ret
 
 
+def check_extraction_quality(warnings_to_show=None):
+    titles_df = pd.read_csv(os.path.join(settings.DATA_PATH, 'in', TITLES_FILENAME))
+
+    def find_warnings(text, chapter_number):
+        '''returns a list of warning flags'''
+        ret = []
+
+        if not re.search(r'(?i)^\W*\w{2,3}apter\b', text):
+            ret.append('NO_CHAPTER')
+
+        if len(text) < 400:
+            ret.append('SHORT_TEXT')
+
+        if utils.normalise_roman_number(utils.get_roman_from_int(chapter_number)) not in utils.normalise_roman_number(text):
+            ret.append('NO_CHAPTER_NUMBER')
+
+        return ret
+
+    stats = Counter({'TOTAL': len(titles_df)})
+
+    for idx, row in titles_df.iterrows():
+        warnings = find_warnings(row['Text'], row['Chapter'])
+        if (warnings and warnings_to_show is None) or (set(warnings).intersection(set(warnings_to_show))):
+            stats.update(warnings)
+            print(
+                '{} {} {:80.80} {}'.format(
+                    row['Chapter'],
+                    str(row['Class 3']).zfill(3),
+                    repr(re.sub(r'\s+', ' ', row['Text'])),
+                    ' '.join(warnings)
+                )
+            )
+
+    print('\nWarnings:')
+    print(stats)
+
+
 download_and_extract()
+
+check_extraction_quality(['SHORT_TEXT'])

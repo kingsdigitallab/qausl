@@ -16,6 +16,13 @@ TITLES_FILENAME = 'titles-455.txt'
 # See "Class 3" column
 TITLES_FILENAME = 'titles-1398.csv'
 
+# For temporary files during training.
+# For best performance, select a local folder and files can be too big
+# for remote transfer.
+WORKING_DIR = '~/.qausl'
+WORKING_DIR = os.path.abspath(WORKING_DIR)
+os.makedirs(os.path.join(WORKING_DIR), exist_ok=True)
+
 # ---------------------------------------------------------
 # EMBEDDINGS
 
@@ -45,30 +52,32 @@ CAT_DEPTH = 1
 
 # the seed to split into train/test sets, None if random, integer otherwise
 SAMPLE_SEED = None
-SAMPLE_SEED = 1
+# SAMPLE_SEED = 1
 
 # How many times we repeat training over different train/test splits.
 # 40 trials should be enough to remove variation, but long to run.
-TRIALS = 40
+TRIALS = 2
 if SAMPLE_SEED:
     TRIALS = 1
 
-# Number of epochs per trial.
+# Number of times a model sees the full training set.
 # 400-500 seems ideal for 450 training set of titles.
-EPOCHS = 400
+# Note that 5 is FastText default and enough for titles in dataset 2.
+# But more is needed for classification of full text.
+# Generally the less data, the more epoch we need.
+EPOCHS = 1
 
 # how many test sample per class
 # default 2
-TEST_PER_CLASS = 4
+TEST_PER_CLASS = 2
 
 # minimum number of training samples per class
 # default 2
 TRAIN_PER_CLASS = 2
 
 # 60 for level 1, 40 level 2, 25 level 3
+# We truncate majority classes to avoid blind bias towards them.
 TRAIN_PER_CLASS_MAX = [0, 60, 40, 25][CAT_DEPTH]
-# TRAIN_PER_CLASS_MAX = 10
-# TRAIN_PER_CLASS_MAX = 40
 
 # how many validation sample per class
 # 0 means we don't use validation
@@ -77,6 +86,7 @@ VALID_PER_CLASS = 0
 
 # one of the class names in classifiers.py
 CLASSIFIER = 'FastText'
+CLASSIFIER = 'FlairTARS'
 
 # ---------------------------------------------------------
 # FASTTEXT
@@ -93,3 +103,6 @@ REPORT_CONFIDENCES = [0, 0.5, 0.75, 0.85, 0.9, 0.95, 0.96, 0.99, 0.995, 0.999, 0
 # minimum degree of confidence for each prediction
 MIN_CONFIDENCE = 0.96
 
+# if False a prediction can match the secondary category as well as the
+# primary one. This will count as a true positive.
+IGNORE_SECONDARY_CATEGORY = 0

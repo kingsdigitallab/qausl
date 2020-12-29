@@ -3,7 +3,7 @@ import utils
 import pandas as pd
 import settings
 import time
-from classifiers import FastText, Classifier
+from classifiers import Classifier
 
 titles_out_path = utils.get_data_path('out', 'titles.csv')
 
@@ -52,16 +52,25 @@ def train_and_test(df, preds):
         pred, confidence = classifier.predict(row['titlen'])
 
         preds.append({
-            'cat': utils.short_label(row['label']),
-            'pred': utils.short_label(pred),
+            'cat1': row['cat1'],
+            'cat2': row['cat2'],
+            # cat1 or cat2, whichever is the closest to pred.
+            # this is a trick to simplify analysis.
+            # We consider that a match on secondary category is just as good.
+            'cat': row['cat1'],
+            'pred': pred,
             'conf': confidence,
             'title': row['titlen'],
         })
 
+        if not settings.IGNORE_SECONDARY_CATEGORY:
+            if pred == row['cat2']:
+                preds[-1]['cat'] = row['cat2']
+
         corr = '<>'
         if confidence > settings.MIN_CONFIDENCE:
             sure += 1
-        if row['label'] == pred:
+        if pred == preds[-1]['cat']:
             acc += 1
             corr = '=='
             if confidence > settings.MIN_CONFIDENCE:
@@ -69,10 +78,11 @@ def train_and_test(df, preds):
         elif confidence > settings.MIN_CONFIDENCE:
             corr = '!!'
         if corr != '==':
-            print('{} actual: {}, pred.: {} ({:.2f} c.) title: {}'.format(
+            print('{} actual: {} / {}, pred.: {} ({:.2f} c.) title: {}'.format(
                 corr,
-                utils.short_label(row['label']),
-                utils.short_label(pred),
+                row['cat1'],
+                row['cat2'],
+                pred,
                 confidence,
                 row['title'][:100].replace('\n', '')
             ))
@@ -147,7 +157,8 @@ def prepare_dataset():
     df.to_csv(titles_out_path, columns=['id', 'cat1', 'cat2', 'title'], index=False)
 
     # normalise the title
-    df['titlen'] = df['title'].apply(lambda v: utils.tokenise_title(v))
+    classifier = Classifier.from_name(settings.CLASSIFIER)
+    df['titlen'] = df['title'].apply(lambda v: classifier.tokenise(v))
 
     return df
 

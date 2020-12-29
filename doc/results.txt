@@ -8,15 +8,41 @@ acceptable?: precision > 95%, recall >
 Improvements
 ------------
 
-Clean the full text
-Use Bert
-Address imbalance
-Try TFIDF+KNN
-Try NB
-S Check secondary categories
-Analyse ceiling
-S lump all the under-represented classes together
+M Other types of classifiers
+    M Use Bert (L1 titles unless otherwise specified)
+        DONE Flair TARS-0
+            ++ no training :)
+            - very poor accuracy (33% on L1)
+            - quite slow to test each title
+        Flair TARS-n
+            ++ looks very promising on 1 random trial (~84% after 4 epochs on titles)
+            - But heavy (0.5 GB model) and demanding/slow to build (~1min on GPU), load and test
+            - can't train on full text, it blows up RAM
+            - uses a validation set, which reduces available training & class recognition?
+            => So Bert looks promising but we need a smaller architecture
+    C Try TFIDF+KNN
+    C Try NB
+    D FastText
+        ++ very good results and very fast compared to more advanced models, can run easily on laptop CPU
+S Clean the full text
+    DONE misassigned chapters
+    DONE very short chapter text
+    words stuck together
+    other OCR misspellings
+    stop words
+C Address imbalance
+    M lump all the under-represented classes together
+    W Using another loss function
+S Analyse errors and ceiling
+    S F1 score
+    C Show results as a html pages
+C Optimise FastText:
+    DONE try FT with ngram=2 words, it's supposed to improve results
+        Tried on L1 & 2, doesn't seem to make any difference
+    C lr=1.0 & epoch=25
 
+DONE Accept secondary categories as a true positive
+    slight increase (2%), nothing major.
 DONE add cat titles to the training set
     not beneficial
 DONE use autotune with validation set
@@ -33,6 +59,20 @@ TODO re-balance training set
         seems to correct biggest spill out mistakes and increases accuracy by 3-4%
 remove acts/resolution
 exploit hierarchical relationships
+
+Legislation Subject scheme (dec 2020)
+--------------------------
+
+Julian Hoppit, 2017, Britain's Political Economies: Parliament and Economic Life, 1660–1800, p.328
+https://books.google.co.uk/books?id=074pDwAAQBAJ&pg=PA328&lpg=PA328&dq=%22Loans+and+national+debt+management%22&source=bl&ots=7gj6fEgmnC&sig=ACfU3U3Xi_8yItKMUNXlY_73XT2uMLzEOg&hl=en&sa=X&ved=2ahUKEwjgrqeQhPPtAhWRYcAKHVnDALQQ6AEwBHoECAIQAg#v=onepage&q=%22Loans%20and%20national%20debt%20management%22&f=false
+
+David Hayton, Eveline Cruickshanks, Stuart Handley, 2002, The House of Commons, 1690-1715, Volume 1, p. 937
+https://books.google.co.uk/books?id=XdphWLO1xLsC&pg=RA3-PA938&lpg=RA3-PA938&dq=%22Loans+and+national+debt+management%22&source=bl&ots=M-bk1ZGKxc&sig=ACfU3U2_H1FfGr2Btt44lUvzVWUaPv6k_w&hl=en&sa=X&ved=2ahUKEwjgrqeQhPPtAhWRYcAKHVnDALQQ6AEwA3oECAEQAg#v=onepage&q=%22Loans%20and%20national%20debt%20management%22&f=false
+
+Irish Legislation Database
+https://www.qub.ac.uk/ild/?func=advanced_search&search=true&search_string=&search_string_type=ALL&search_type=any&session_from=1692&session_to=1800&enacted_search=all&subjects=%7C205%7C
+
+Removed all Irish or English specifics from classes.txt, e.g. Bank of England
 
 Conclusions
 -----------
@@ -58,6 +98,16 @@ DONE Use more training data
 DONE Use article text for classification
     Worse performance (apart from L1)
 Try different classifiers (e.g. recurrent net, Flair, Bert)
+
+[Dec]
+
+!!!! Reason we can't learn 100% level 3 from titles only
+    208 Relief of James Ralston
+    007 Relief of Andres Patterson
+    001 Relief of Marcus Hulings, junior
+    000 Relief of John Hughes
+    006 Relief of Robert Cunningham, a prisoner in the gaol of the county of Philadelphia
+    009 Relief of Thomas Butler and Henry Brown
 
 Questions
 ---------
@@ -191,3 +241,5 @@ Depth 2
 acc: 0.58 certain: 0.47 acc certain: 0.65 0.31
 avg: 0.62 [0.53, 0.72], depth: 2, 10 trials, 100 dims, 500 epochs, (Embedddings: None)
 
+
+--
