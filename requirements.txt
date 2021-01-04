@@ -6,3 +6,7 @@ fasttext
 matplotlib
 textract
 seaborn
+nltk
+flair
+# pip install intel-tensorflow-avx512 # on intel CPUs
+tensorflow

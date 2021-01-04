@@ -1,11 +1,30 @@
 import math
 import os
 import re
+import urllib
+
 import pandas as pd
 import settings
-import fasttext
 import seaborn as sn
 from _csv import QUOTE_NONE
+import nltk
+
+STEMMER = nltk.stem.porter.PorterStemmer()
+LEMMATIZER = nltk.stem.wordnet.WordNetLemmatizer()
+STOP_WORDS = nltk.corpus.stopwords.words("english")
+STOP_WORDS.extend(
+            'further chap sic act supplement resolution entituled entitled chapter section'.split())
+
+class Bidict(dict):
+    '''A python dict with a method to get a key from a value'''
+
+    def get_key_from_val(self, val, default=None):
+        ret = default
+        keys = [k for k, v in self.items() if v == val]
+        if keys:
+            ret = keys[0]
+        return ret
+
 
 def get_data_path(*path_parts):
     '''e.g. get_data_path('in', 'myfile.txt', makedirs=True)
@@ -22,7 +41,7 @@ def read_file(path):
     ret = ''
 
     if os.path.exists(path):
-        with open(path, 'rt', encoding='utf-8') as fh:
+        with open(path, 'rt', encoding='utf-8', errors='replace') as fh:
             ret = fh.read()
 
     return ret
@@ -43,7 +62,7 @@ def read_df_from_titles_csv(path, use_full_text):
     dataframe columns:
         title, id, cat1, cat2
     cat1 is the primary 3 digit category, e.g. 156
-    cat2 is an secondary category for the same chapter.
+    cat2 is an optional secondary category for the same chapter. NaN if none.
     '''
     df = pd.read_csv(path)
 
@@ -59,7 +78,7 @@ def read_df_from_titles_csv(path, use_full_text):
         input_column: 'title',
     })
 
-    # IMPORTANT: pad cat1 & cat2 with 0s
+    # IMPORTANT: left pad cat1 & cat2 with 0s
     def clean_cat(cat):
         # e.g. 0.2 => 002
         return re.sub(r'\..*', r'', str(cat))[:3].zfill(3)
@@ -106,40 +125,67 @@ def read_df_from_titles_txt(path, use_full_text):
 def split_dataset(df, depth=3, cat_train=2, cat_test=2, cat_valid=0):
     '''
     Shuffles and split the dataset into training and testing samples.
-    Uses a new column 'test' = 1|0 to determine if a sample is test or not.
+    Uses a new column 'split' =
+        -1: sample unused
+        0: training sample
+        1: testing sample
+        2: validating sample
 
     :param df: dataframe with all titles
     :param depth: depth of the taxonomy for the classification
     :param cat_test: minimum number of test sample per class
-    :return: shuffled dataframe with a new column 'test': 1 or 0
+    :return: shuffled dataframe with a new column 'split': -1,0,1 or 2
+
+    cat1 & cat2 will be strings with <depth> digits.
     '''
-    # shuffle the data
+    # Shuffle the data
     df = df.sample(frac=1, random_state=settings.SAMPLE_SEED).reset_index(drop=True)
-    # create new col with desired cat depth
+
+    # Make sure the categories have the expected format
     df['cat1'] = df['cat1'].apply(lambda v: str(v)[:depth])
     df['cat2'] = df['cat2'].apply(lambda v: str(v)[:depth])
-    # count cats
+
+    # Count samples per cat
     vc = df['cat1'].value_counts()
+    render_category_distribution(vc)
 
-    save_category_distribution(vc)
+    # only test or validate on cats which have enough samples
+    # vc = vc.where(lambda x: x >= (cat_train + cat_test + cat_valid)).dropna()
+    vc = {k: [settings.TRAIN_PER_CLASS_MAX, cat_test, cat_valid] for k in vc.index}
 
-    # only get cat which have enough samples
-    vc = vc.where(lambda x: x >= (cat_train + cat_test + cat_valid)).dropna()
-    vc = {k: cat_test + cat_valid for k in vc.index}
-
-    # split 0:train - 1:test - 2:valid
-    df['test'] = -1
+    # Actual splitting.
+    # -1:unassigned; 0:train; 1:test; 2:valid
+    # TODO: support for valid
+    df['split'] = -1
     for idx, row in df.iterrows():
         cat = row['cat1']
-        left = vc.get(cat, 0)
-        if left > 0:
-            df.loc[idx, 'test'] = 1 if (left > cat_valid) else 2
-        else:
-            if left > - settings.TRAIN_PER_CLASS_MAX:
-                df.loc[idx, 'test'] = 0
-        vc[cat] = left - 1
+        split = -1
+        if row['can_test'] and vc[cat][1]:
+            split = 1
+        elif row['can_train'] and vc[cat][0]:
+            split = 0
+        if split > -1:
+            vc[cat][split] -= 1
+            df.loc[idx, 'split'] = split
 
-    # df = df.append(get_class_titles(depth))
+    # don't test categories without enough test & train samples
+    tiny_cats2 = []
+    for cat, counts in vc.items():
+        if counts[1] or counts[0] > (settings.TRAIN_PER_CLASS_MAX - settings.TRAIN_PER_CLASS_MIN):
+            df.loc[(df.cat1 == cat) & (df.split == 1), 'split'] = -1
+            tiny_cats2.append(cat)
+
+    # TODO: oversampling instead of group_tiny_classes
+    if settings.GROUP_TINY_CLASSES:
+        group_cat = '#' * depth
+        df.loc[df.cat1.isin(tiny_cats2), 'cat1'] = group_cat
+        df.loc[df.cat2.isin(tiny_cats2), 'cat2'] = group_cat
+        # split this group into testing and training
+        indexes = df.loc[df.cat1 == group_cat].index
+        df.loc[df.index.isin(indexes[0:cat_test]), 'split'] = 1
+        df.loc[df.index.isin(indexes[cat_test:cat_test+settings.TRAIN_PER_CLASS_MAX]), 'split'] = 0
+
+    # print(sorted(tiny_cats2))
 
     return df
 
@@ -239,35 +285,19 @@ def tokenise_title(title):
     return ret
 
 
-def get_class_titles(depth=3):
-    '''Returns a dataframe of categories of level=depth.
-    Columns: title, cat1
-    '''
-    ret = {}
+def read_class_titles(depth):
+    '''Returns a dictionary of categories at given depth.
+    {cat: title}
 
+    cat is a string with depth digits legal category code.
+    '''
     content = read_file(get_data_path('in', 'classes.txt'))
 
-    for cls in re.findall(r'(?m)^(\d+)\.?\s+(.+)$', content):
-        cls_num = cls[0]
-        cls = {
-            'title': cls[1],
-            'cat1': cls_num,
-            'test': 0,
-        }
-        classes[cls_num] = cls
-
-    data = []
-    for cls in classes.values():
-        num = cls['cat']
-        if len(num) == depth:
-            data.append(cls)
-            while num:
-                num = num[:-1]
-                parent = classes.get(num)
-                if parent:
-                    cls['title'] += ' ' + parent['title']
-
-    return pd.DataFrame(ret)
+    return Bidict({
+        cls[0]: re.sub('\W+', ' ', cls[1])
+        for cls in re.findall(r'(?m)^(\d+)\.?\s+(.+)$', content)
+        if len(cls[0]) == depth
+    })
 
 
 def save_ft_sets(df, titles_out_path):
@@ -281,7 +311,7 @@ def save_ft_sets(df, titles_out_path):
     exts.append('.val')
     for i, ext in enumerate(exts):
         path = titles_out_path + ext
-        adf = df.loc[df['test'] == i]
+        adf = df.loc[df['split'] == i]
         adf.to_csv(
             path, columns=['label', 'titlen'], index=False, sep=' ',
             header=False, quoting=QUOTE_NONE, escapechar=' '
@@ -293,36 +323,40 @@ def save_ft_sets(df, titles_out_path):
         })
 
     print(
-        ', '.join([
-            '{} {}'.format(len(df['df']), df['ext'])
+        ' | '.join([
+            '{} {} ({} cats)'.format(
+                len(df['df']),
+                df['ext'],
+                df['df'].cat1.nunique(),
+            )
             for df in dfs
-        ]),
-        '({} test classes)'.format(len(dfs[1]['df']['cat1'].value_counts()))
+            if len(df['df'])
+        ])
     )
 
     return dfs
 
 
 def learn_embeddings_from_transcipts():
+    import fasttext
     model = fasttext.train_unsupervised(settings.TRANSCRIPTS_PATH)
     print(len(model.words))
     model.save_model(settings.TRANSCRIPTS_MODEL_PATH)
 
 
-def get_confusion_matrix(preds):
+def get_confusion_matrix(preds, classifier):
 
     ret = pd.crosstab(
         preds['cat'],
         preds['pred'],
         rownames=['Actual'],
         colnames=['Predicted'],
-        margins=True,
+        # margins=True,
         # won't work, still a bug in pandas
         dropna=False
     )
 
     # fix for missing columns
-    i = 0
     cols = ret.columns.tolist()
     rows = ret.index.tolist()
     labels = sorted(list(set(cols + rows)))
@@ -334,31 +368,60 @@ def get_confusion_matrix(preds):
 
     ret = ret.sort_index()
 
+    # add a row with number of False Positives
+    import numpy as np
+    ret.loc['FP'] = ret.sum() - np.diag(ret)
+
+    # add a row with number of training samples
+    ret.loc['Trained'] = classifier.df_train.cat1.value_counts()
+
     return ret
 
 
-def get_exp_key():
+def get_exp_key(classifier):
     '''Returns a string that summarises the settings of the
     training process.'''
     auto = ''
-    if settings.VALID_PER_CLASS:
-        auto = '-{}a'.format(settings.AUTOTUNE_DURATION)
+    if settings.VALID_PER_CLASS and settings.CLASSIFIER == 'FastText':
+        auto = settings.AUTOTUNE_DURATION
 
-    return '{}-{}l-{}d-{}ep-{}tr-{}cap-{}ds-{}-{}{}'.format(
-        settings.CLASSIFIER,
-        settings.CAT_DEPTH,
-        settings.DIMS,
-        settings.EPOCHS,
-        settings.TRIALS,
-        settings.TRAIN_PER_CLASS_MAX,
-        re.sub(r'^\D+(\d+).*?$', r'\1', settings.TITLES_FILENAME),
-        'fulltxt' if settings.FULL_TEXT else 'titles',
-        settings.EMBEDDING_FILE,
-        auto
-    )
+    filenames = '-'.join([
+        (
+            ('trn_' if info['can_train'] else '') +
+            ('tst_' if info['can_test'] else '') +
+            info['filename'].replace('titles-', '')
+        )
+        for info
+        in settings.DATASET_FILES
+        if info['can_train'] or info['can_test']
+    ])
+
+    parts = [
+        ['', classifier.__class__.__name__],
+        ['l', settings.CAT_DEPTH],
+        ['ep', settings.EPOCHS],
+        ['tr', settings.TRIALS],
+        ['trn', f'{settings.TRAIN_PER_CLASS_MIN}-{settings.TRAIN_PER_CLASS_MAX}'],
+        ['tst', settings.TEST_PER_CLASS],
+        ['val', settings.VALID_PER_CLASS],
+        ['', filenames],
+        ['', 'fulltext' if settings.FULL_TEXT else ''],
+        ['dim', classifier.get_internal_dimension()],
+        ['', classifier.get_pretrained_model_name()],
+        ['auto', auto],
+    ]
+
+    ret = '_'.join([
+        f'{val}{suffix}'
+        for suffix, val in
+        parts
+        if val
+    ])
+
+    return ret
 
 
-def render_confusion(df_confusion, preds, fmt='g', vmax=None, fname='conf'):
+def render_confusion(classifier, df_confusion, preds, fmt='g', vmax=None, fname='conf'):
     import matplotlib.pyplot as plt
     import numpy as np
 
@@ -368,41 +431,36 @@ def render_confusion(df_confusion, preds, fmt='g', vmax=None, fname='conf'):
     fig = plt.figure(figsize=[s / 25 * number_of_classes for s in [15, 10]])
     # ax1 = fig.add_subplot(111)
 
+    # trick not to show the '0 annotation in those 0 cells
     df_confusion[df_confusion == 0] = np.nan
 
+    tests_per_class = settings.TEST_PER_CLASS * settings.TRIALS
+
     if vmax is None:
-        vmax = max(df_confusion.iloc[0])*1.5
+        vmax = tests_per_class
 
     ax1 = sn.heatmap(
         df_confusion,
         annot=True,
         vmax=vmax,
+        vmin=0.0,
         fmt=fmt,
         # ax=ax1,
         annot_kws={'size': 8},
         cmap='Blues',
         linecolor='#ccc',
         linewidths=0.5,
+        cbar=False,
     )
     # plt.show()
-    ax1.title.set_text('Confusion matrix ({}% accuracy)'.format(
-        int(len(preds.loc[preds['pred'] == preds['cat']]) / len(preds) * 100)
+    ax1.title.set_text('Confusion matrix ({}% accuracy) - {} tests/cat.'.format(
+        int(len(preds.loc[preds['pred'] == preds['cat']]) / len(preds) * 100),
+        tests_per_class,
     ))
+    ax1.set_xticklabels(ax1.get_xticklabels(), rotation=30)
+    ax1.set_yticklabels(ax1.get_yticklabels(), rotation=30)
 
-    if 0:
-        ax1.tick_params(axis='both', which='both', labelsize=6)
-
-        import numpy as np
-        ax1.set_yticks(np.arange(len(df_confusion)))
-        ax1.set_xticks(np.arange(len(df_confusion.columns.tolist())))
-        ax1.set_yticklabels(df_confusion.index.tolist())
-        ax1.set_xticklabels(df_confusion.columns.tolist(), rotation=90)
-        ax1.set_xticks([float(n) + 0.5 for n in ax1.get_xticks()])
-        ax1.set_yticks([float(n) + 0.5 for n in ax1.get_yticks()])
-
-        ax1.xaxis.tick_top()
-
-    plt.savefig(get_data_path(settings.PLOT_PATH, get_exp_key() + '-' + fname + '.svg'))
+    plt.savefig(get_data_path(settings.PLOT_PATH, get_exp_key(classifier) + '-' + fname + '.svg'))
 
 
 def render_confusion_old(df_confusion, preds, fmt='g', vmax=None, fname='conf'):
@@ -450,7 +508,7 @@ def render_confusion_old(df_confusion, preds, fmt='g', vmax=None, fname='conf'):
     plt.savefig(get_data_path(settings.PLOT_PATH, get_exp_key() + '-' + fname + '.svg'))
 
 
-def render_confidence_matrix(preds):
+def render_confidence_matrix(classifier, preds):
     '''
     :param preds: a dataframe with predictions, columns:
         cat: true class
@@ -498,7 +556,7 @@ def render_confidence_matrix(preds):
 
     ret = pd.DataFrame(ret).set_index('cat', drop=True)
 
-    render_confusion(ret, preds, '.2f', 1.0, fname='roc')
+    render_confusion(classifier, ret, preds, '.2f', 1.0, fname='roc')
 
     return ret
 
@@ -528,14 +586,22 @@ def normalise_roman_number(roman_number):
     return roman_number.upper().replace('O', 'C').replace('T', 'I').replace('L', 'I').replace('Y', 'V').replace('1', 'I').replace('IXC', 'XC')
 
 
-def save_category_distribution(categories_count):
+def render_category_distribution(categories_count):
     '''
     :param categories_count: A panda Series: category -> number of titles
     Save the distribution as a SVG.
     '''
+    categories_count = categories_count.copy()
+    cat_num = len(categories_count)
+
+    tiny_threshold = settings.TRAIN_PER_CLASS_MIN + settings.TEST_PER_CLASS + settings.VALID_PER_CLASS
+    tiny_categories = categories_count[categories_count < tiny_threshold]
+    if settings.GROUP_TINY_CLASSES:
+        categories_count['#' * settings.CAT_DEPTH] = tiny_categories.sum()
+    to_num = f' -> {cat_num - len(tiny_categories)}'
+
     depth = len(categories_count.first_valid_index())
     # save as bar chart
-    cat_num = len(categories_count)
     vc_df = categories_count.to_frame().reset_index()
     vc_df = vc_df.rename(columns={'cat1': 'chapters'})
     vc_df['category'] = vc_df['index']
@@ -556,7 +622,7 @@ def save_category_distribution(categories_count):
         dodge=False, **options
     )
 
-    ax.set_title(f'Number of chapters per level {depth} category. ({cat_num} categories)')
+    ax.set_title(f'Number of chapters per level {depth} category. ({cat_num}{to_num} categories)')
 
     # show count next to each bar
     for p in ax.patches:
@@ -567,6 +633,13 @@ def save_category_distribution(categories_count):
                 ha='left', va='bottom',
                 color='black'
             )
+
+    # draw threshold for tiny categories
+    if tiny_threshold:
+        ax.axvline(tiny_threshold)
+
+    ax.axvline(settings.TRAIN_PER_CLASS_MAX + settings.TEST_PER_CLASS)
+
     fig = ax.get_figure()
     fig.savefig(get_data_path('out', f'cat-{depth}.svg'))
     pyplot.close()
@@ -592,8 +665,98 @@ def repair_ocred_text(text):
     # reunite hyphenated words (de-Syllabification)
     ret = re.sub(r'(\w)\s*-\s*(\w)', r'\1\2', ret)
 
+    # quotation marks
+    ret = ret.replace('“', '"')
+    
+    # 752 The Statutes at Large of Pennsylvania. [1808
+    # 845 846 The Statutes at Large of Pennsylvania. [1808
+    pattern = r'[(){}\s\d\[\]\.]+The Statutes at Large of Pennsylvania[(){}\s\d\[\]\.]+'
+    # print(re.findall(pattern, ret))
+    ret = re.sub(pattern, ' ', ret)
+
+    # remove small bracketed content
+    # e.g. {Section I.] (Section II, P. L.)
+    pattern = r'[\[{(][^)}\]]{1,20}[)\]}]'
+    # ms = re.findall(pattern, ret)
+    # if ms:
+    #     print('bracketed', ms)
+    ret = re.sub(pattern, ' ', ret)
+
     # remove line breaks
     ret = re.sub(r'\s+', r' ', ret)
 
-    return ret
+    return ret.strip()
 
+
+def tokenise(
+    string,
+    stemmatise = False,
+    lemmatise = False,
+    stop_words = False,
+    no_small_words = False,
+    no_numbers = False
+):
+    '''Simplify the input string to help improve training.'''
+
+    # clean (convert to lowercase and remove punctuations
+    # and characters and then strip)
+    ret = re.sub(r'[^\w\s]', '', str(string).lower().strip())
+
+    if no_numbers:
+        ret = re.sub(r'\d+', ' ', ret)
+
+    if no_small_words:
+        ret = re.sub(r'\b\w{1,2}\b', ' ', ret)
+
+    ## Tokenize (convert from string to list)
+    ret = ret.split()
+    ## remove Stopwords
+    if stop_words:
+        ret = [
+            word for word in ret
+            if word not in STOP_WORDS
+        ]
+
+    ## Stemming (remove -ing, -ly, ...)
+    if stemmatise:
+        ret = [STEMMER.stem(word) for word in ret]
+
+    ## Lemmatisation (convert the word into root word)
+    if lemmatise:
+        ret = [LEMMATIZER.lemmatize(word) for word in ret]
+
+    ## back to string from list
+    return " ".join(ret)
+
+
+def fix_torch_cuda_long_wait():
+    '''On my laptop, when the eGPU is off, some pytorch imports
+    will hang for a very long time in this function:
+
+    torch.cuda.is_available()
+
+    Here we monkey patch torch to avoid that. Other solutions proposed on
+    stackoverflow didn't work. https://stackoverflow.com/q/53266350
+    '''
+    import torch
+    if settings.CPU_ONLY:
+        delattr(torch._C, '_cuda_getDeviceCount')
+
+
+def download(url, out_path):
+    '''Download the resource at url into a file at out_path.
+    If file exists, do nothing.
+    Returns 1 if file already exists. 2 if downloaded. 0 on error.'''
+    ret = 1
+
+    if not os.path.exists(out_path):
+        ret = 0
+        try:
+            with urllib.request.urlopen(url) as resp:
+                with open(out_path, 'wb') as fh:
+                    fh.write(resp.read())
+                ret = 2
+        except urllib.error.HTTPError as e:
+            print(f"ERROR: {url} {e}")
+
+    return ret

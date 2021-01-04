@@ -14,32 +14,72 @@ M Other types of classifiers
             ++ no training :)
             - very poor accuracy (33% on L1)
             - quite slow to test each title
-        Flair TARS-n
+        D Flair TARS-few
             ++ looks very promising on 1 random trial (~84% after 4 epochs on titles)
-            - But heavy (0.5 GB model) and demanding/slow to build (~1min on GPU), load and test
+            - But heavy (0.5 GB model) and demanding/slow to build (~2min on GPU), load and test
             - can't train on full text, it blows up RAM
-            - uses a validation set, which reduces available training & class recognition?
+            - uses a validation/dev set, which reduces available training & class recognition? (50 L1 / 514)
             => So Bert looks promising but we need a smaller architecture
-    C Try TFIDF+KNN
-    C Try NB
+            --- Far too big/slow for full text training. Must use minibatch = 1 even with GPU.
+            - hard to find best hyperparameters
+            S check if preprocessing is necessary
+            S try truncating full text to first 512 tokens (limit of Bert)
+            - 3-shots doesn't yield better results than other classifiers!
+            D Try with random labels to see if it affects anything
+                - tried with code instead of title and accuracy drop by half for 3-shots
+                - 60-shots drops from 81% to 67%
+        C Flair with TextClassifier
+            https://github.com/flairNLP/flair/blob/master/resources/docs/TUTORIAL_7_TRAINING_A_MODEL.md#training-a-text-classification-model-with-transformer
+
+        M Try Hugging Face with a small legal model
+            + much faster to train on L1
+            + easier to parametrise
+            S better stopping condition:
+                epoch > E OR (TRAIN > 90% AND VAL > 90%)
+            M use legal-bert
+            DONE process inputs?
+                ” => "
+                752 The Statutes at Large of Pennsylvania. [1808
+                845 846 The Statutes at Large of Pennsylvania. [1808
+                D lowercase: Doesn't seem to make any difference.
+            DONE check the max size of the encoded string
+                from transformers import DistilBertTokenizer as Tokenizer
+                tok = Tokenizer.from_pretrained('distilbert-base-uncased')
+                t = tok.encode('New York '*2000, truncation=True, padding=True)
+                => list of 512 ints, long enough to cover the first 10-15 lines of a chapter.
+                => it lowercases things and splits punctuations
+            M try weight-decay
+
+    D Try NB
+        +++ super fast, decent baseline accuracy, deterministic
+        ++ no hyperparameters
+        + works with long text
     D FastText
         ++ very good results and very fast compared to more advanced models, can run easily on laptop CPU
+        + deterministic
+        D remove numbers, etc
 S Clean the full text
     DONE misassigned chapters
     DONE very short chapter text
     words stuck together
+        https://stackoverflow.com/questions/53487850/python-function-for-splitting-strung-together-word-into-individual-words
     other OCR misspellings
-    stop words
+    DONE stop words
+    DONE remove Chapter MXXX from start of full text
+    DONE remove things like (Section VI)
 C Address imbalance
-    M lump all the under-represented classes together
+    DONE lump all the under-represented classes together
     W Using another loss function
 S Analyse errors and ceiling
-    S F1 score
+    D F1 score
     C Show results as a html pages
 C Optimise FastText:
     DONE try FT with ngram=2 words, it's supposed to improve results
         Tried on L1 & 2, doesn't seem to make any difference
     C lr=1.0 & epoch=25
+
+S check that the cats are well read and padded (zfill) check with source sheet
+
 
 DONE Accept secondary categories as a true positive
     slight increase (2%), nothing major.
@@ -69,8 +109,14 @@ https://books.google.co.uk/books?id=074pDwAAQBAJ&pg=PA328&lpg=PA328&dq=%22Loans+
 David Hayton, Eveline Cruickshanks, Stuart Handley, 2002, The House of Commons, 1690-1715, Volume 1, p. 937
 https://books.google.co.uk/books?id=XdphWLO1xLsC&pg=RA3-PA938&lpg=RA3-PA938&dq=%22Loans+and+national+debt+management%22&source=bl&ots=M-bk1ZGKxc&sig=ACfU3U2_H1FfGr2Btt44lUvzVWUaPv6k_w&hl=en&sa=X&ved=2ahUKEwjgrqeQhPPtAhWRYcAKHVnDALQQ6AEwA3oECAEQAg#v=onepage&q=%22Loans%20and%20national%20debt%20management%22&f=false
 
-Irish Legislation Database
+Irish Legislation Database QUB
 https://www.qub.ac.uk/ild/?func=advanced_search&search=true&search_string=&search_string_type=ALL&search_type=any&session_from=1692&session_to=1800&enacted_search=all&subjects=%7C205%7C
+4000 items, but some cats are also poorly represented
+
+DONE - scraped 2363 titles from it. ~~1500 have common categories with QAUSL.
+    we get similar accuracy levels on L1 with NB & FT
+    S train on QUB and test on QAUSL
+    M train on QUB+QAUSL and test on QAUSL
 
 Removed all Irish or English specifics from classes.txt, e.g. Bank of England
 
@@ -109,6 +155,19 @@ Try different classifiers (e.g. recurrent net, Flair, Bert)
     006 Relief of Robert Cunningham, a prisoner in the gaol of the county of Philadelphia
     009 Relief of Thomas Butler and Henry Brown
 
+S referential titles
+    Around 230 (> 10%) titles are references to other titles:
+    e.g. Supplement to the act entitled "An act for the relief of the poor."
+    S test if pairs have been categorised in the same way
+    S if so, remove those references?
+        although the full text is useful to learn about the class
+        but not needed when using titles only
+    D only keeping the quoted part in the title doesn't improve accuracy on L1, NB & FT
+
+!!!! results are probably pessimistic b/c the testing set is balanced
+In practice IF the majority classes have better accuracy the real set
+will be better classified as well.
+
 Questions
 ---------
 
@@ -123,6 +182,11 @@ DONE Q1b: if there is a strong correlation, can we estimate how many sample/clas
 
 DONE Q2: what is the cut-off confidence level? And what automation benefit can we expect from it?
     => return a table showing the rec+prec matrix for class vs confidence cut-off
+
+!! What is the minimum amount of samples per class needed to allow good classification?
+    L2: 25?
+Why is the full text less good than titles?
+Why can't we reach very high accuracy on full text L1?
 
 26 dec
 Q3. Which mistakes are the worst in L1?
@@ -139,10 +203,12 @@ Q3. Which mistakes are the worst in L1?
 Reading
 -------
 
+https://towardsdatascience.com/text-classification-with-nlp-tf-idf-vs-word2vec-vs-bert-41ff868d1794
+
 https://www.ehs.org.uk/dotAsset/4fb9d095-5599-4885-af0d-e14211c4b490.pdf
 see footnotes page 5
 
-Prob1: unsupervised/emebbings model saved as .bin (all model params, thus ngrams)
+Prob1: unsupervised/embbeding model saved as .bin (all model params, thus ngrams)
 but supervised can only take a .vec which contains word embeddings.
 
 Note that FT avg ngram vecs to get a word vec
@@ -155,6 +221,19 @@ https://github.com/kazuki-hayakawa/fasttext_vs_doc2vec/blob/master/model_doc2vec
 https://towardsdatascience.com/multi-class-text-classification-model-comparison-and-selection-5eb066197568
 https://rare-technologies.com/sent2vec-an-unsupervised-approach-towards-learning-sentence-embeddings/
 https://towardsdatascience.com/text-classification-with-extremely-small-datasets-333d322caee2
+
+https://nlp.stanford.edu/IR-book/html/htmledition/evaluation-of-text-classification-1.html
+Reuters-21578
+
+Hyperparameters
+Batch size: 16, 32; Learning rate (Adam): 5e-5, 3e-5, 2e-5; Number of epochs: 2, 3, 4;
+L1-Titles
+16,1e-1,3,0.78
+16,5e-2,5,0.81 #
+16,5e-3,5,0.80
+16,5e-4,5,0.4
+32,5e-2,5,0.83 #
+8,5e-2,5,0.81
 
 Trial logs
 ----------
@@ -242,4 +321,88 @@ acc: 0.58 certain: 0.47 acc certain: 0.65 0.31
 avg: 0.62 [0.53, 0.72], depth: 2, 10 trials, 100 dims, 500 epochs, (Embedddings: None)
 
 
---
+==============================================================
+
+!!!! Interesting to see that Flair & FastText agree in their errors. Could mean that:
+a) human classification is too subjective or erroneous
+b) titles are ambiguous and not enough info in title to classify
+
+514 .trn, 18 .tst, 0 .val (9 test classes)
+Read 0M words
+Number of words:  1392
+Number of labels: 9
+Progress: 100.0% words/sec/thread:   79756 lr:  0.000000 avg.loss:  0.628095 ETA:   0h 0m 0s
+#1 <> actual: 0 / n, pred.: 1 (0.35 c.) title: Confirmation of a partition made of certain lands in Lycoming county
+<> actual: 5 / n, pred.: 2 (0.36 c.) title: Provide for the settlement of the accounts of divers officers of the militia of the counties of West
+#2 <> actual: 2 / n, pred.: 1 (0.43 c.) title: Supplement to an act entitled "An act to provide for the accommodation of the congress of the United
+#3 <> actual: 5 / n, pred.: 2 (0.78 c.) title: Payment of the claim of Turnbull, Marmie and Company
+<> actual: 6 / 2, pred.: 1 (0.47 c.) title: Relief of the inhabitants of the village of Palmyra in the township of Londonderry Dauphin county
+<> actual: 3 / n, pred.: 1 (0.21 c.) title: Direct the sale of certain unimproved lots, the property of this commonwealth, in the city of Philad
+acc: 0.67 certain: 0.17 acc certain: 1.00 0.17; 100d
+----------------------------------------
+[INFO] FastText-1l-100d-1ep-4tr-60cap-1398ds-titles-Law2Vec.100d.txt, 0.67 acc, 0.6 minutes.
+(qausl) jeff@gn16x:~/src/prj/qauslxps/src$ python prep.py
+trial 1/1
+514 .trn, 18 .tst, 0 .val (9 test classes)
+2020-12-29 13:09:23,684 loading file /home/jeff/.flair/models/tars-base.pt
+100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 463/463 [00:00<00:00, 95026.56it/s]
+saving best model
+#1 <> actual: 0 / n, pred.: 1 (0.55 c.) title: Confirmation of a partition made of certain lands in Lycoming county
+<> actual: 6 / 7, pred.: 1 (0.70 c.) title: Supplement to "An act for securing the city of Philadelphia and the neighborhood thereof from damage
+<> actual: 5 / n, pred.: 3 (0.61 c.) title: Provide for the settlement of the accounts of divers officers of the militia of the counties of West
+#2 <> actual: 2 / n, pred.: 1 (0.75 c.) title: Supplement to an act entitled "An act to provide for the accommodation of the congress of the United
+#3 <> actual: 5 / n, pred.: 2 (0.67 c.) title: Payment of the claim of Turnbull, Marmie and Company
+<> actual: 7 / 7, pred.: 8 (0.86 c.) title: Authorize Martin Nissly to erect a wing-dam on the west side of Conestoga river in the county of Lan
+acc: 0.67 certain: 0.11 acc certain: 1.00 0.11; Noned
+----------------------------------------
+[INFO] FlairTARS-1l-100d-1ep-1tr-60cap-1398ds-titles-Law2Vec.100d.txt, 0.67 acc, 0.3 minutes.
+
+
+Tips for hyperparams:
+
+0. start with recommended defaults
+1. first try to achieve very high accuracy on training set
+2. then unpush it (e.g. less epochs) by trying to convert that into validation accuracy
+3. learning rate can be very sensitive: too high and the training is too volatile with many set back. Too slow and it takes too long to learn. It's about finding the sweet spot in the pace of learning.
+4. if batch is too high it can also make the training volatile and slow.
+5. use validation set (1-3/class) to find out best hyperparams
+6. to test improvements to data, etc. use a fixed random seed so results are deterministic
+
+
+Question:
+
+Sensitivity to class size (see 2021-01-03 16:47)
+  NB
+    [2021-01-03 16:47] [INFO] NaiveBayes_1l_5ep_13tr_2-20trn_6tst_trn_tst_1398.csv, 0.68 acc, 0.1 minutes.
+    [2021-01-03 16:47] [INFO] NaiveBayes_1l_5ep_13tr_2-30trn_6tst_trn_tst_1398.csv, 0.74 acc, 0.1 minutes.
+    [2021-01-03 16:47] [INFO] NaiveBayes_1l_5ep_13tr_2-60trn_6tst_trn_tst_1398.csv, 0.78 acc, 0.1 minutes.
+    [2021-01-03 16:47] [INFO] NaiveBayes_1l_5ep_13tr_2-100trn_6tst_trn_tst_1398.csv, 0.84 acc, 0.1 minutes.
+    [2021-01-03 16:48] [INFO] NaiveBayes_1l_5ep_13tr_2-1000trn_6tst_trn_tst_1398.csv, 0.80 acc, 0.1 minutes.
+    - with NB, unbounded class sizes (large imbalance) tend to create biases results
+    - majority steal more and minority are deprived
+    - with 20cap all classes are balanced and we can get a sense of which classes naturally steal
+    - 4 naturally steals from 6 & 0, 8 steals from 7
+  FT
+    [2021-01-03 17:38] [INFO] FastText_1l_5ep_13tr_2-20trn_6tst_trn_tst_1398.csv_100dim_Law2Vec.100d.txt, 0.73 acc, 0.9 minutes.
+    [2021-01-03 17:39] [INFO] FastText_1l_5ep_13tr_2-30trn_6tst_trn_tst_1398.csv_100dim_Law2Vec.100d.txt, 0.77 acc, 1.0 minutes.
+    [2021-01-03 17:41] [INFO] FastText_1l_5ep_13tr_2-60trn_6tst_trn_tst_1398.csv_100dim_Law2Vec.100d.txt, 0.81 acc, 1.1 minutes.
+    [2021-01-03 17:42] [INFO] FastText_1l_5ep_13tr_2-100trn_6tst_trn_tst_1398.csv_100dim_Law2Vec.100d.txt, 0.84 acc, 1.0 minutes.
+    [2021-01-03 17:42] [INFO] FastText_1l_5ep_13tr_2-1000trn_6tst_trn_tst_1398.csv_100dim_Law2Vec.100d.txt, 0.86 acc, 1.0 minutes.
+    - similar bias, perhaps less pronounced than NB
+    - also interesting to note that small difference between 100 and MAX/1000 cap
+  TR
+    [2021-01-03 18:38] [INFO] Transformers_1l_8ep_13tr_2-20trn_6tst_trn_tst_1398.csv_distilbert-base-uncased, 0.79 acc, 3.9 minutes.
+    [2021-01-03 18:43] [INFO] Transformers_1l_8ep_13tr_2-30trn_6tst_trn_tst_1398.csv_distilbert-base-uncased, 0.75 acc, 4.9 minutes.
+    [2021-01-03 18:50] [INFO] Transformers_1l_8ep_13tr_2-60trn_6tst_trn_tst_1398.csv_distilbert-base-uncased, 0.85 acc, 7.4 minutes.
+    [2021-01-03 19:01] [INFO] Transformers_1l_8ep_13tr_2-100trn_6tst_trn_tst_1398.csv_distilbert-base-uncased, 0.85 acc, 10.5 minutes.
+    [2021-01-03 19:18] [INFO] Transformers_1l_8ep_13tr_2-1000trn_6tst_trn_tst_1398.csv_distilbert-base-uncased, 0.89 acc, 16.9 minutes. ### best overall
+    - 1000 also shows a clear correlation between training size and testing accuracy for each class
+    - here 100 same acc. as 60 but significantly less than 1000
+
+
+Learn from QUB, test with QAUSL:
+    - with NB, the best perf is 41%, compared to 78+ when trained with QAUSL
+
+
+
+

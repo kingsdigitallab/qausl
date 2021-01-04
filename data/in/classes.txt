@@ -1,5 +1,5 @@
 0. Personal
-00. Wealth.
+00. Personal Wealth.
 000. Estates broadly defined (including settlements, specific leases, jointures).
 001. Wills, inheritance.
 002. Guardianship, minors.
@@ -7,15 +7,16 @@
 004. Divorce and allowing to marry.
 005. Illegitimate, legitimate.
 006. Bankruptcy, debt of individual.
+007. Wealth others
 009. Miscellaneous.
-01. Status
+01. Personal Status
 010. Name change.
 011. Naturalization (individual or small groups only).
 012. Dignities (e.g. peerage creations).
 019. Miscellaneous.
 
 1. Government.
-10. Executive.
+10. Executive Government.
 100. The Crown.
 101. Forfeited estates, Crown grants, Crown lands.
 102. Departments.
@@ -25,12 +26,12 @@
 111. Parliamentary business.
 112. Parliamentary privilege.
 119. Miscellaneous.
-12. Local.
+12. Local Government.
 120. County.
 121. Parish.
 122. Borough.
 123. Other.
-124. Colonies and plantations (including Ireland).
+124. Colonies and plantations.
 129. Miscellaneous.
 
 2. Finance.
@@ -39,7 +40,7 @@
 201. Customs and excise.
 202. Smuggling and fraud.
 203. Public lotteries, annuities.
-205. Loans and national debt management (e.g. Bank of England).
+205. Loans and national debt management.
 206. Other direct taxes (i.e. windows, carriages).
 207. Debts to Crown.
 208. Civil list.
@@ -85,7 +86,7 @@
 410. General toleration, general naturalization.
 411. Protestant dissent.
 412. Popery.
-413. Blasphemy, Sabbath breaking, swearing, atheism (but see 606).
+413. Blasphemy, Sabbath breaking, swearing, atheism.
 414. Popular beliefs, magic.
 419. Miscellaneous.
 
@@ -96,7 +97,7 @@
 502. Provisions, equipment, ordnance, victualling, debts.
 503. Organization and discipline.
 504. Fortifications.
-505. Pensions, retirement, hospitals (e.g. Chelsea).
+505. Pensions, retirement, hospitals.
 509. Miscellaneous (including promotions).
 51. Navy.
 510. Recruitment and disbanding.
@@ -104,7 +105,7 @@
 512. Provisions, equipment, ordnance, victualling, debts.
 513. Organization and discipline.
 514. Fortifications and convoys.
-515. Pensions, retirement, hospitals (e.g. Greenwich).
+515. Pensions, retirement, hospitals.
 516. Prizes, privateers and piracy.
 519. Miscellaneous (including promotions).
 52. Militia (including Volunteers).

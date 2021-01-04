@@ -6,6 +6,7 @@ Finally insert the chapter text into a new column 'Text' of our training CSV.
 Note: each PDF contains a bit of the previous chapter and following one.
 '''
 import difflib
+import math
 import os
 import re
 from collections import Counter
@@ -68,9 +69,11 @@ def extract_chapters_from_texts(titles_df, limit=None):
         for j, prefix in enumerate(['', 'tes-']):
             filename = f"{prefix}{chapter_number}.txt"
             content = utils.read_file(os.path.join(DOWNLOAD_PATH, filename))
+            chapter, chapter_first_line = extract_chapter_from_text(content, chapter_number)
             options.append({
                 'filename': filename,
-                'chapter': extract_chapter_from_text(content, chapter_number),
+                'chapter': chapter,
+                'first_line': chapter_first_line,
             })
 
             if options[-1]['chapter']:
@@ -83,6 +86,7 @@ def extract_chapters_from_texts(titles_df, limit=None):
             text = utils.repair_ocred_text(options[best]['chapter'])
 
             titles_df.loc[titles_df['Chapter'] == chapter_number, "Text"] = text
+            titles_df.loc[titles_df['Chapter'] == chapter_number, "First line"] = options[best]['first_line']
             # print('INFO: {} - {}'.format(chapter_number, options[best]['filename']))
 
     print('INFO: {} parsed. {} not found.'.format(limit, limit-found))
@@ -166,7 +170,7 @@ def extract_chapter_from_text(text, chapter_number):
                     warning = 'NEXT is first'
                     start = None
 
-    if 1 and start is None:
+    if start is None:
         # heuristic: if no good match AND we have two candidate chapters
         # then pick the first candidate.
         if len(chapters) == 2:
@@ -175,6 +179,7 @@ def extract_chapter_from_text(text, chapter_number):
             end = lines.index(chapters[1], start+1)
 
     # now get all the lines between start and end
+    first_line = ''
     if start is not None:
         if end is None:
             end = min([
@@ -187,17 +192,20 @@ def extract_chapter_from_text(text, chapter_number):
             if end != len(lines) and lines[end]:
                 if re.findall(r'\d', lines[end]):
                     warning = 'END might be a footnote'
+                    print(warning, lines[end])
         if re.findall(r'\d', lines[start]):
             warning = 'START might be a footnote'
+            print(warning, lines[start])
 
         # extract lines [start:end] from the non-normalised text
         lines = text.split('\n')
-        ret = '\n'.join(lines[start:end])
+        ret = '\n'.join(lines[start+1:end]).strip('\n ')
+        first_line = lines[start].strip('\n ')
 
     if not ret:
         print(chapter_number, repr(marker), chapters, warning)
 
-    return ret
+    return ret, first_line
 
 
 def find_exact_chapter_number(number, candidates_lines, all_lines):
@@ -228,14 +236,8 @@ def download_pdfs(titles_df):
 
         out_path = os.path.join(DOWNLOAD_PATH, f"{row['Chapter']}.pdf")
 
-        if not os.path.exists(out_path):
+        if utils.download(url, out_path) == 2:
             print(f"{i}/{total} {url}")
-            try:
-                with urllib.request.urlopen(url) as resp:
-                    with open(out_path, 'wb') as fh:
-                        fh.write(resp.read())
-            except urllib.error.HTTPError as e:
-                print(f"ERROR: {url} {e}")
 
 
 def extract_texts_from_pdfs(titles_df, reprocess=False, read_only=False, limit=None, use_tesseract=False):
@@ -308,17 +310,20 @@ def get_first_chapter_from_pdf_text(text, print_chapters=False, chapter_number=N
 def check_extraction_quality(warnings_to_show=None):
     titles_df = pd.read_csv(os.path.join(settings.DATA_PATH, 'in', TITLES_FILENAME))
 
-    def find_warnings(text, chapter_number):
+    def find_warnings(text, chapter_number, first_line):
         '''returns a list of warning flags'''
         ret = []
 
-        if not re.search(r'(?i)^\W*\w{2,3}apter\b', text):
+        if pd.isna(first_line):
+            first_line = ''
+
+        if not re.search(r'(?i)^\W*\w{2,3}apter\b', first_line):
             ret.append('NO_CHAPTER')
 
         if len(text) < 400:
             ret.append('SHORT_TEXT')
 
-        if utils.normalise_roman_number(utils.get_roman_from_int(chapter_number)) not in utils.normalise_roman_number(text):
+        if utils.normalise_roman_number(utils.get_roman_from_int(chapter_number)) not in utils.normalise_roman_number(first_line):
             ret.append('NO_CHAPTER_NUMBER')
 
         return ret
@@ -326,13 +331,15 @@ def check_extraction_quality(warnings_to_show=None):
     stats = Counter({'TOTAL': len(titles_df)})
 
     for idx, row in titles_df.iterrows():
-        warnings = find_warnings(row['Text'], row['Chapter'])
+        warnings = find_warnings(row['Text'], row['Chapter'], row['First line'])
+        stats.update(warnings)
         if (warnings and warnings_to_show is None) or (set(warnings).intersection(set(warnings_to_show))):
-            stats.update(warnings)
             print(
-                '{} {} {:80.80} {}'.format(
+                '{} {:20.20} {} {:40.40} {:80.80} {}'.format(
                     row['Chapter'],
+                    row['First line'],
                     str(row['Class 3']).zfill(3),
+                    row['Title'],
                     repr(re.sub(r'\s+', ' ', row['Text'])),
                     ' '.join(warnings)
                 )
@@ -344,4 +351,4 @@ def check_extraction_quality(warnings_to_show=None):
 
 download_and_extract()
 
-check_extraction_quality(['SHORT_TEXT'])
+check_extraction_quality(['NO_CHAPTER'])
