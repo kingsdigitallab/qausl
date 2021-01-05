@@ -290,8 +290,13 @@ class Transformers(Classifier):
     # Both should produce equivalent results.
     train_with_tensorflow_directly = 1
 
-    # only one working among 5e-[2 to 6], very sensitive to it.
-    learning_rate = 5e-5
+    # Stability of training is very sensitive to the rate.
+    # 5e-5 generally works very well in <= 8 epochs
+    # but occasionally get stuck forever at <0.3 acc.
+    # learning_rate = 5e-5
+    # TODO: use dynamic LR
+    # 5e-6 more stable than -5 but slow grinder... needs 3x more epochs.
+    learning_rate = 5e-6
 
     # https://huggingface.co/transformers/pretrained_models.html
     # 6-layer, 768-hidden, 12-heads, 66M parameters
@@ -311,10 +316,6 @@ class Transformers(Classifier):
         self.tokenizer = Tokenizer.from_pretrained(
             Transformers.pretrained_model_name
         )
-
-        if settings.SAMPLE_SEED:
-            import tensorflow as tf
-            tf.random.set_seed(settings.SAMPLE_SEED)
 
     def train(self):
         import tensorflow as tf
@@ -357,13 +358,24 @@ class Transformers(Classifier):
                 metrics=['accuracy']
             )
 
+            callbacks = None
+            epochs = settings.EPOCHS
+            if 1:
+                epochs = 15
+                class EarlyStop(tf.keras.callbacks.Callback):
+                    def on_epoch_end(self, epoch, logs={}):
+                        if (logs.get('accuracy') > 0.94):
+                            self.model.stop_training = True
+                callbacks = [EarlyStop()]
+
             model.fit(
                 # train_dataset.shuffle(1000).batch(16),
                 # TODO: understand what that batch() does...
                 train_dataset.batch(settings.MINIBATCH),
-                epochs=settings.EPOCHS,
+                epochs=epochs,
                 batch_size=settings.MINIBATCH,
                 validation_data=val_data,
+                callbacks=callbacks,
             )
             self.model = model
         else:

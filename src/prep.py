@@ -17,6 +17,8 @@ def run_trials():
     For each trial, train a new classifier on a random training sample.
     '''
 
+    utils.set_global_seed()
+
     t0 = time.time()
 
     print('Load datasets')
@@ -201,6 +203,14 @@ def evaluate_model(classifier, df_eval, preds=None, display_prefix=''):
     ))
 
 # for cap in [20, 30, 60, 100, 1000]:
-for cap in [settings.TRAIN_PER_CLASS_MAX]:
-    settings.TRAIN_PER_CLASS_MAX = cap
-    run_trials()
+# for cap in [settings.TRAIN_PER_CLASS_MAX]:
+#     settings.TRAIN_PER_CLASS_MAX = cap
+#     run_trials()
+
+# seed = 34: slips... never learns
+
+# for seed in range(20, 40):
+#     settings.SAMPLE_SEED = seed
+#     run_trials()
+
+run_trials()

@@ -666,7 +666,7 @@ def repair_ocred_text(text):
     ret = re.sub(r'(\w)\s*-\s*(\w)', r'\1\2', ret)
 
     # quotation marks
-    ret = ret.replace('“', '"')
+    ret = ret.replace('”', '"').replace('“', '"')
     
     # 752 The Statutes at Large of Pennsylvania. [1808
     # 845 846 The Statutes at Large of Pennsylvania. [1808
@@ -760,3 +760,16 @@ def download(url, out_path):
             print(f"ERROR: {url} {e}")
 
     return ret
+
+
+def set_global_seed():
+    seed = settings.SAMPLE_SEED
+    if seed:
+        import random
+        random.seed(seed)
+        import numpy as np
+        np.random.seed(seed)
+
+        os.environ['TF_DETERMINISTIC_OPS'] = '1'
+        import tensorflow as tf
+        tf.random.set_seed(settings.SAMPLE_SEED)

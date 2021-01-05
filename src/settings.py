@@ -68,14 +68,15 @@ os.makedirs(PLOT_PATH, exist_ok=True)
 # GENERAL TRAINING
 
 # If True, use the full text of a chapter instead of just its title
-FULL_TEXT = 1
+FULL_TEXT = 0
 
 # 1, 2 or 3: the depth of the taxonomy for the classification
-CAT_DEPTH = 3
+CAT_DEPTH = 1
 
 # the seed to split into train/test sets, None if random, integer otherwise
+# 34: transformers L1FT get stuck on it with lr=5e-5
 SAMPLE_SEED = None
-# SAMPLE_SEED = 1
+# SAMPLE_SEED = 34
 
 # Number of times a model sees the full training set.
 # 400-500 seems ideal for 450 training set of titles.
@@ -83,17 +84,20 @@ SAMPLE_SEED = None
 # But more is needed for classification of full text.
 # Generally the less data, the more epoch we need.
 EPOCHS = 5 if not FULL_TEXT else 200
-EPOCHS = 8
+# for Transformers, the epoch is a maximum
+EPOCHS = 15
 
 # how many test sample per class
 # default 2
 TEST_PER_CLASS = 6 if CAT_DEPTH == 1 else 2
+TEST_PER_CLASS = 2
 
 # How many times we repeat training over different train/test splits.
 # 40 trials should be enough to remove variation, but long to run.
 TRIALS = int(40 / TEST_PER_CLASS * 2)
 if SAMPLE_SEED:
     TRIALS = 1
+TRIALS = 40
 
 # minimum number of training samples per class (default 2).
 # A class is 'TINY' if it contains fewer than
@@ -110,7 +114,6 @@ GROUP_TINY_CLASSES = 0
 # We truncate majority classes to avoid blind bias towards them.
 TRAIN_PER_CLASS_MAX = [0, 60, 40, 25][CAT_DEPTH]
 # TRAIN_PER_CLASS_MAX = TRAIN_PER_CLASS_MIN
-
 # TRAIN_PER_CLASS_MAX = 100
 
 # how many validation sample per class
@@ -127,7 +130,8 @@ CLASSIFIER = 'Transformers'
 # ---------------------------------------------------------
 # NN
 
-# best with 32 (but needs GPU with enough RAM)
+# best with 32? (but needs GPU with enough RAM).
+# 8 is more stable, gives good results and works with lower resources.
 MINIBATCH = 8
 
 # ---------------------------------------------------------
