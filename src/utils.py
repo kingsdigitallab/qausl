@@ -4,10 +4,15 @@ import re
 import urllib
 
 import pandas as pd
+from matplotlib import ticker
+
 import settings
 import seaborn as sn
 from _csv import QUOTE_NONE
 import nltk
+import matplotlib.pyplot as plt
+import numpy as np
+
 
 STEMMER = nltk.stem.porter.PorterStemmer()
 LEMMATIZER = nltk.stem.wordnet.WordNetLemmatizer()
@@ -122,7 +127,7 @@ def read_df_from_titles_txt(path, use_full_text):
     return df
 
 
-def split_dataset(df, depth=3, cat_train=2, cat_test=2, cat_valid=0):
+def split_dataset(df, depth=3, cat_train=2, cat_test=2, cat_valid=0, seed=None):
     '''
     Shuffles and split the dataset into training and testing samples.
     Uses a new column 'split' =
@@ -139,7 +144,7 @@ def split_dataset(df, depth=3, cat_train=2, cat_test=2, cat_valid=0):
     cat1 & cat2 will be strings with <depth> digits.
     '''
     # Shuffle the data
-    df = df.sample(frac=1, random_state=settings.SAMPLE_SEED).reset_index(drop=True)
+    df = df.sample(frac=1, random_state=seed).reset_index(drop=True)
 
     # Make sure the categories have the expected format
     df['cat1'] = df['cat1'].apply(lambda v: str(v)[:depth])
@@ -151,7 +156,10 @@ def split_dataset(df, depth=3, cat_train=2, cat_test=2, cat_valid=0):
 
     # only test or validate on cats which have enough samples
     # vc = vc.where(lambda x: x >= (cat_train + cat_test + cat_valid)).dropna()
+
     vc = {k: [settings.TRAIN_PER_CLASS_MAX, cat_test, cat_valid] for k in vc.index}
+
+    train_threshold = (settings.TRAIN_PER_CLASS_MAX - settings.TRAIN_PER_CLASS_MIN)
 
     # Actual splitting.
     # -1:unassigned; 0:train; 1:test; 2:valid
@@ -161,25 +169,32 @@ def split_dataset(df, depth=3, cat_train=2, cat_test=2, cat_valid=0):
         cat = row['cat1']
         split = -1
         if row['can_test'] and vc[cat][1]:
+            # collect test samples first
             split = 1
+        elif row['can_train'] and vc[cat][2] and vc[cat][0] <= train_threshold:
+            # collect valid samples if min training collected
+            split = 2
         elif row['can_train'] and vc[cat][0]:
+            # collect min to max training samples
             split = 0
         if split > -1:
             vc[cat][split] -= 1
             df.loc[idx, 'split'] = split
 
     # don't test categories without enough test & train samples
-    tiny_cats2 = []
+    tiny_cats = []
     for cat, counts in vc.items():
-        if counts[1] or counts[0] > (settings.TRAIN_PER_CLASS_MAX - settings.TRAIN_PER_CLASS_MIN):
+        if counts[1] or counts[0] > train_threshold:
             df.loc[(df.cat1 == cat) & (df.split == 1), 'split'] = -1
-            tiny_cats2.append(cat)
+            tiny_cats.append(cat)
 
-    # TODO: oversampling instead of group_tiny_classes
+    if tiny_cats:
+        print(f'Untestable cats: {tiny_cats}')
+
     if settings.GROUP_TINY_CLASSES:
         group_cat = '#' * depth
-        df.loc[df.cat1.isin(tiny_cats2), 'cat1'] = group_cat
-        df.loc[df.cat2.isin(tiny_cats2), 'cat2'] = group_cat
+        df.loc[df.cat1.isin(tiny_cats), 'cat1'] = group_cat
+        df.loc[df.cat2.isin(tiny_cats), 'cat2'] = group_cat
         # split this group into testing and training
         indexes = df.loc[df.cat1 == group_cat].index
         df.loc[df.index.isin(indexes[0:cat_test]), 'split'] = 1
@@ -409,6 +424,7 @@ def get_exp_key(classifier):
         ['dim', classifier.get_internal_dimension()],
         ['', classifier.get_pretrained_model_name()],
         ['auto', auto],
+        ['class_weight', settings.CLASS_WEIGHT]
     ]
 
     ret = '_'.join([
@@ -461,12 +477,10 @@ def render_confusion(classifier, df_confusion, preds, fmt='g', vmax=None, fname=
     ax1.set_yticklabels(ax1.get_yticklabels(), rotation=30)
 
     plt.savefig(get_data_path(settings.PLOT_PATH, get_exp_key(classifier) + '-' + fname + '.svg'))
+    plt.close()
 
 
 def render_confusion_old(df_confusion, preds, fmt='g', vmax=None, fname='conf'):
-    import matplotlib.pyplot as plt
-    import numpy as np
-
     # print(df_confusion)
 
     fig = plt.figure()
@@ -509,6 +523,90 @@ def render_confusion_old(df_confusion, preds, fmt='g', vmax=None, fname='conf'):
 
 
 def render_confidence_matrix(classifier, preds):
+    '''
+    Render a precision vs recall chart for each category.
+
+    :param preds: a dataframe with predictions, columns:
+        cat: true class
+        pred: predicted class
+        conf: level of confidence of the prediction
+    '''
+
+    ret = []
+
+    # preds -> precs[recall, cat] = precision
+    precs = pd.DataFrame()
+
+    cats = sorted(preds.cat.unique())
+    for cat in ['AVG'] + cats:
+        for conf in settings.REPORT_CONFIDENCES:
+            relevant = preds
+            sure = preds.loc[preds.conf >= conf]
+            if cat != 'AVG':
+                relevant = relevant.loc[preds.cat == cat]
+                sure = sure.loc[preds.cat == cat]
+            sure_correct = sure.loc[preds.pred == preds.cat]
+
+            recall = len(sure_correct) / len(relevant)
+            try:
+                precision = len(sure_correct) / len(sure)
+            except ZeroDivisionError:
+                precision = math.nan
+            precs.loc[recall, cat] = precision
+
+    precs.loc[0] = 1.0
+
+    precs = precs.sort_index()
+    precs = precs.interpolate()
+
+    # Remove all the categories which have lines going below the average (AVG)
+    # at the median point or at the bottom point in confidence/precision.
+    # This makes the chart easier to read at L£ with so many categories.
+    hide_cats_above_ALL = len(cats) > 10
+    if hide_cats_above_ALL:
+        # median confidence point
+        meds = precs.median()
+        meds_cats = meds.loc[meds < meds[0]].index
+        # lowest confidence point
+        bots = precs.iloc[-1]
+        bots_cats = bots.loc[bots < bots[0]].index
+        cats_below_ALL = ['AVG']
+        # union (i.e. OR)
+        cats_below_ALL.extend(meds_cats.union(bots_cats).sort_values().to_list())
+        precs = precs[cats_below_ALL]
+
+    fig = plt.figure(figsize=[10, 10])
+    sn.set_style("ticks")
+    ax1 = sn.lineplot(data=precs)
+
+    ax1.yaxis.set_major_locator(ticker.MultipleLocator(0.1))
+    ax1.xaxis.set_major_locator(ticker.MultipleLocator(0.1))
+    ax1.set(xlabel='Recall', ylabel='Precision')
+
+    # show category on teh right of each line
+    for cat in precs.columns:
+        ax1.annotate(
+            str(cat),
+            # (p.get_width() + 3, p.get_y() + 0.5),
+            (1.0, precs.iloc[-1][cat]),
+            ha='left', va='bottom',
+            color='black'
+        )
+
+    ax1.title.set_text('Precision / recall ({}, {}% accuracy)'.format(
+        classifier.__class__.__name__,
+        int(len(preds.loc[preds['pred'] == preds['cat']]) / len(preds) * 100),
+    ))
+
+    fname = 'prec'
+
+    plt.savefig(get_data_path(settings.PLOT_PATH, get_exp_key(classifier) + '-' + fname + '.svg'))
+    plt.close()
+
+    return ret
+
+
+def render_confidence_matrix_old(classifier, preds):
     '''
     :param preds: a dataframe with predictions, columns:
         cat: true class
@@ -762,8 +860,7 @@ def download(url, out_path):
     return ret
 
 
-def set_global_seed():
-    seed = settings.SAMPLE_SEED
+def set_global_seed(seed=None):
     if seed:
         import random
         random.seed(seed)
@@ -772,4 +869,4 @@ def set_global_seed():
 
         os.environ['TF_DETERMINISTIC_OPS'] = '1'
         import tensorflow as tf
-        tf.random.set_seed(settings.SAMPLE_SEED)
+        tf.random.set_seed(seed)

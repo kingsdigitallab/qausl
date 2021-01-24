@@ -33,10 +33,15 @@ M Other types of classifiers
 
         M Try Hugging Face with a small legal model
             + much faster to train on L1
-            + easier to parametrise
-            S better stopping condition:
-                epoch > E OR (TRAIN > 90% AND VAL > 90%)
+            + complex to parametrise: epochs, learning rate, ...
+            - not very stable
             M use legal-bert
+            M try weight-decay or dropout
+            M try SGDM
+            M find out why L3-FT-class_weight is so unstable
+            DONE better stopping condition:
+                DONE epoch > E OR (TRAIN >= 95%)
+                M figure out why the perf at end of epoch don't match the display in tensorflow 2.4 (ML)
             DONE process inputs?
                 ” => "
                 752 The Statutes at Large of Pennsylvania. [1808
@@ -48,7 +53,6 @@ M Other types of classifiers
                 t = tok.encode('New York '*2000, truncation=True, padding=True)
                 => list of 512 ints, long enough to cover the first 10-15 lines of a chapter.
                 => it lowercases things and splits punctuations
-            M try weight-decay
 
     D Try NB
         +++ super fast, decent baseline accuracy, deterministic
@@ -167,6 +171,9 @@ S referential titles
 !!!! results are probably pessimistic b/c the testing set is balanced
 In practice IF the majority classes have better accuracy the real set
 will be better classified as well.
+
+!! L3, we can see that the Misc cats are stealing a lot from others:
+009, 109? also 207
 
 Questions
 ---------
@@ -358,7 +365,7 @@ acc: 0.67 certain: 0.11 acc certain: 1.00 0.11; Noned
 [INFO] FlairTARS-1l-100d-1ep-1tr-60cap-1398ds-titles-Law2Vec.100d.txt, 0.67 acc, 0.3 minutes.
 
 
-Tips for hyperparams:
+Tips for hyperparams (m):
 
 0. start with recommended defaults
 1. first try to achieve very high accuracy on training set
@@ -368,6 +375,9 @@ Tips for hyperparams:
 5. use validation set (1-3/class) to find out best hyperparams
 6. to test improvements to data, etc. use a fixed random seed so results are deterministic
 
+!! having more epochs beyond satisfying training accuracy increases the f1 by a lot (not necessarily the test accuracy)
+
+=> use a cdt on validation set rather then training set will help
 
 Question:
 
@@ -399,12 +409,34 @@ Sensitivity to class size (see 2021-01-03 16:47)
     - 1000 also shows a clear correlation between training size and testing accuracy for each class
     - here 100 same acc. as 60 but significantly less than 1000
 
+Stability of TF:
+    Larger MB => more stable? (esp with small training set?), better parallelism
+    Lower MB => learn faster, and recommended
+        more noise => better generalisation & more chance to escape local minima
+    LR: lower => slow, high => very unstable
+    "the larger the mini-batch, the smaller the learning rate will need to be in order to train as accurately"
 
-Learn from QUB, test with QAUSL:
+Learn from QUB (all), test with QAUSL (L1, 35 sample / cat):
     - with NB, the best perf is 41%, compared to 78+ when trained with QAUSL
+    - FT: 82% -> 53%
+    - TR: 86% -> 67% or 72% when using all QUB
+L3
+    - NB: 16%
+    - FT: ~35%
+    - TR: ~44%
 
 
+TF: 2.3.1, CUDA: 10.1, Cudnn: 7.6, Driver: >=418
+TF: 2.4, CUDA: 11.0, Cudnn: 8.0, Driver: >= 450
 
+gn16x auto-upgraded cuda to 11.2
+NVIDIA-SMI 460.32.03    Driver Version: 460.32.03    CUDA Version: 11.2
+
+# version of running driver (455)
+cat /proc/driver/nvidia/version
+# version of cuda (10.1)
+nvcc --version
+# version of cudn
 
 Epoch 1/15
 64/64 [==============================] - 17s 266ms/step - loss: 2.0517 - accuracy: 0.2233
@@ -436,3 +468,10 @@ Epoch 14/15
 64/64 [==============================] - 17s 267ms/step - loss: 2.1957 - accuracy: 0.0870
 Epoch 15/15
 64/64 [==============================] - 17s 267ms/step - loss: 2.1960 - accuracy: 0.0889
+
+Q. why are the metrics different in end_epoch callback from the display?
+
+96/96 [==============================] - 26s 270ms/step - loss: 3.2300 - accuracy: 0.6009
+{'loss': 3.3285114765167236, 'accuracy': 0.4869791567325592}
+
+

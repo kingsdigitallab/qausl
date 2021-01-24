@@ -17,7 +17,8 @@ def run_trials():
     For each trial, train a new classifier on a random training sample.
     '''
 
-    utils.set_global_seed()
+    catastrophic_failures = 0
+    seed = None
 
     t0 = time.time()
 
@@ -26,8 +27,18 @@ def run_trials():
 
     preds = []
     for i in range(0, settings.TRIALS):
-        print('trial {}/{}'.format(i + 1, settings.TRIALS))
-        classifier = train_and_test(df, preds)
+        if settings.SAMPLE_SEED:
+            seed = settings.SAMPLE_SEED + i
+            utils.set_global_seed(seed)
+
+        print('trial {}/{}{}'.format(
+            i + 1,
+            settings.TRIALS,
+            f' ({seed} seed)' if seed else ''
+        ))
+        classifier, accuracy = train_and_test(df, preds, seed)
+        if accuracy < 0.4:
+            catastrophic_failures += 1
         print('-' * 40)
     t1 = time.time()
 
@@ -37,18 +48,42 @@ def run_trials():
         df_confusion = utils.get_confusion_matrix(preds, classifier)
         utils.render_confusion(classifier, df_confusion, preds)
 
-    if 0:
+    if 1:
         utils.render_confidence_matrix(classifier, preds)
 
     acc = len(preds.loc[preds['pred'] == preds['cat']]) / len(preds)
-    utils.log('{}, {:.2f} acc, {:.1f} minutes.'.format(
+
+    conf = settings.MIN_CONFIDENCE
+    positive = len(preds.loc[preds['conf'] >= conf])
+    true_positive = len(preds.loc[(preds['conf'] >= conf) & (preds['pred'] == preds['cat'])])
+    if positive < 1:
+        positive = 0.001
+        precision = 0
+    else:
+        precision = true_positive / positive
+    recall = true_positive / len(preds)
+    f1 = 0
+    if precision + recall > 0:
+        f1 = 2 * (precision * recall) / (precision + recall)
+
+    if catastrophic_failures:
+        catastrophic_failures = f'; {catastrophic_failures} fails.'
+    else:
+        catastrophic_failures = ''
+
+    utils.log('{}; {:.2f} acc; {:.2f} prec, {:.2f} rec, {:.2f} f1 for {:.2f} conf.; {:.0f} mins.{}'.format(
         utils.get_exp_key(classifier),
         acc,
-        (t1-t0)/60
+        precision,
+        recall,
+        f1,
+        conf,
+        (t1-t0)/60,
+        catastrophic_failures,
     ))
 
 
-def train_and_test(df, preds):
+def train_and_test(df, preds, seed):
     '''
     Run a single trial:
         Shuffle df and split it into training and testing subsets
@@ -78,7 +113,7 @@ def train_and_test(df, preds):
     )
 
     # TRAIN
-    classifier = Classifier.from_name(settings.CLASSIFIER)
+    classifier = Classifier.from_name(settings.CLASSIFIER, seed)
     classifier.set_datasets(df, titles_out_path)
     classifier.train()
 
@@ -86,9 +121,9 @@ def train_and_test(df, preds):
 
     if settings.EVALUATE_TRAINING_SET:
         evaluate_model(classifier, classifier.df_train, display_prefix='TRAIN = ')
-    evaluate_model(classifier, df_test, preds, display_prefix='TEST  = ')
+    accuracy = evaluate_model(classifier, df_test, preds, display_prefix='TEST  = ')
 
-    return classifier
+    return classifier, accuracy
 
 
 def prepare_dataset():
@@ -123,7 +158,7 @@ def prepare_dataset():
     )
 
     # normalise the title
-    classifier = Classifier.from_name(settings.CLASSIFIER)
+    classifier = Classifier.from_name(settings.CLASSIFIER, None)
     df_all['titlen'] = df_all['title'].apply(lambda v: classifier.tokenise(v))
 
     return df_all
@@ -139,7 +174,7 @@ def evaluate_model(classifier, df_eval, preds=None, display_prefix=''):
     if preds is None:
         preds = []
 
-    acc = 0
+    correct = 0
     sure = 0
     sure_correct = 0
     for idx, row in df_eval.iterrows():
@@ -162,14 +197,15 @@ def evaluate_model(classifier, df_eval, preds=None, display_prefix=''):
                 preds[-1]['cat'] = row['cat2']
 
         comp = '<>'
-        if confidence >= settings.MIN_CONFIDENCE:
+        is_sure = confidence >= settings.MIN_CONFIDENCE
+        if is_sure:
             sure += 1
         if pred == preds[-1]['cat']:
-            acc += 1
+            correct += 1
             comp = '=='
-            if sure:
+            if is_sure:
                 sure_correct += 1
-        elif sure:
+        elif is_sure:
             comp = '!!'
         if comp != '==':
             if settings.SHOW_MISTAKES:
@@ -184,23 +220,28 @@ def evaluate_model(classifier, df_eval, preds=None, display_prefix=''):
 
     if sure < 1:
         sure = 0.001
-
-    precision = sure_correct / sure
+        precision = 0
+    else:
+        precision = sure_correct / sure
     recall = sure_correct / len(df_eval)
     f1 = 0
     if precision + recall > 0:
         f1 = 2 * (precision * recall) / (precision + recall)
 
-    print('{}acc: {:.2f} | acc: {:.2f} of {:.2f}, {:.2f} of all, f1: {:.2f} [conf: {}] | {}d'.format(
+    accuracy = correct / len(df_eval)
+
+    print('{}acc: {:.2f} | prec: {:.2f} of {:.2f}, {:.2f} of all, f1: {:.2f} [conf: {}] | {}d'.format(
         display_prefix,
-        acc / len(df_eval),
-        f1,
+        accuracy,
         precision,
         sure / len(df_eval),
         recall,
+        f1,
         settings.MIN_CONFIDENCE,
         classifier.get_internal_dimension(),
     ))
+
+    return accuracy
 
 # for cap in [20, 30, 60, 100, 1000]:
 # for cap in [settings.TRAIN_PER_CLASS_MAX]:
@@ -209,8 +250,10 @@ def evaluate_model(classifier, df_eval, preds=None, display_prefix=''):
 
 # seed = 34: slips... never learns
 
-# for seed in range(20, 40):
-#     settings.SAMPLE_SEED = seed
-#     run_trials()
+# for class_weight in [0, 1]:
+#     settings.CLASS_WEIGHT = class_weight
+#     for full_text in [0, 1]:
+#         settings.FULL_TEXT = full_text
+#         run_trials()
 
 run_trials()

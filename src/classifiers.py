@@ -8,7 +8,8 @@ class Classifier:
     # Can be overridden in subclasses. Leave this blank.
     pretrained_model_name = ''
 
-    def __init__(self):
+    def __init__(self, seed):
+        self.seed = seed
         self.prepare_resources()
 
     def prepare_resources(self):
@@ -20,11 +21,11 @@ class Classifier:
     def get_pretrained_model_name(self):
         '''Return the name of the pretrained model this classifier
         is based on. Empty string if none.'''
-        return self.pretrained_model_name
+        return self.pretrained_model_name.replace('/', '-')
 
     @classmethod
-    def from_name(cls, classifier_name):
-        return globals()[classifier_name]()
+    def from_name(cls, classifier_name, seed):
+        return globals()[classifier_name](seed)
 
     def set_datasets(self, datasets, csv_path):
         # prep sets for FT and save them on disk
@@ -113,8 +114,8 @@ class FlairTARS(Classifier):
         import logging
         logger = logging.getLogger('flair')
         logger.setLevel(logging.WARNING)
-        if settings.SAMPLE_SEED:
-            flair.set_seed(settings.SAMPLE_SEED)
+        if self.seed:
+            flair.set_seed(self.seed)
 
     def train(self):
         from flair.data import Corpus
@@ -296,12 +297,38 @@ class Transformers(Classifier):
     # learning_rate = 5e-5
     # TODO: use dynamic LR
     # 5e-6 more stable than -5 but slow grinder... needs 3x more epochs.
-    learning_rate = 5e-6
+    # BUT... 5e-6 is both too slow and not generalisable enough on title-only
+    # Why? Why slower to converge on simpler inputs?
+    if settings.FULL_TEXT:
+        learning_rate = 5e-6
+    else:
+        learning_rate = 5e-5
+
+    # learning_rate = 5e-5
+
+    max_length = 500
+
+    early_stopping_condition = lambda cb, logs: (
+        (
+            logs.get('val_accuracy') > 0.94
+            # if few val samples, val acc can be high accidentally
+            and logs.get('accuracy') > 0.94
+        )
+        # stagnation & overfitting
+        or logs.get('accuracy') > 0.99
+    )
 
     # https://huggingface.co/transformers/pretrained_models.html
     # 6-layer, 768-hidden, 12-heads, 66M parameters
     pretrained_model_name = 'distilbert-base-uncased'
-    # pretrained_model = 'nlpaueb/legal-bert-base-uncased'
+    # pretrained_model_name = 'nlpaueb/legal-bert-base-uncased'
+
+    dtype = None
+    # doesn't work on this model
+    # dtype = 'float16'
+
+    # max_epochs = settings.EPOCHS
+    max_epochs = 25
 
     def prepare_resources(self):
         import os
@@ -310,21 +337,23 @@ class Transformers(Classifier):
         self.results_path = os.path.join(settings.WORKING_DIR, 'transformers', 'results')
         os.makedirs(self.results_path, exist_ok=True)
 
-        from transformers import DistilBertTokenizer as Tokenizer
-        # from transformers import AutoTokenizer
-        # Tokenizer = AutoTokenizer.from_pretrained(Transformers.pretrained_model)
+        # from transformers import DistilBertTokenizer as Tokenizer
+        from transformers import AutoTokenizer
+        Tokenizer = AutoTokenizer.from_pretrained(Transformers.pretrained_model_name)
         self.tokenizer = Tokenizer.from_pretrained(
             Transformers.pretrained_model_name
         )
 
+        if self.dtype:
+            from tensorflow import keras
+            keras.backend.set_floatx(self.dtype)
+
+            # default is 1e-7 which is too small for float16.
+            # Without adjusting the epsilon, we will get NaN predictions because of divide by zero problems
+            keras.backend.set_epsilon(1e-4)
+
     def train(self):
         import tensorflow as tf
-        from transformers import (
-            TFDistilBertForSequenceClassification as TFSequenceClassification,
-            TFTrainer, TFTrainingArguments
-        )
-        from transformers import TFAutoModel
-
         # Encoding train_texts and val_texts
 
         # x-digit code -> unique number
@@ -335,23 +364,29 @@ class Transformers(Classifier):
         })
 
         # Convert datasets to transformer format
-        train_dataset = self._create_transformer_dataset(self.df_train)
+        train_dataset = self._create_transformer_dataset(self.df_train).batch(settings.MINIBATCH)
 
-        val_data = None
+        val_data = train_dataset
         if settings.VALID_PER_CLASS:
             val_data = self._create_transformer_dataset(self.df_valid).batch(settings.MINIBATCH)
 
         # Fine-tune the pre-trained model
         if self.train_with_tensorflow_directly:
-            model = TFSequenceClassification.from_pretrained(
+            from transformers import TFDistilBertForSequenceClassification
+
+            model = TFDistilBertForSequenceClassification.from_pretrained(
                 Transformers.pretrained_model_name,
                 num_labels=len(self.classes)
             )
             # from transformers import TFAutoModelForPreTraining
             # model = TFAutoModelForPreTraining.from_pretrained(Transformers.pretrained_model, from_pt=True)
+
             optimizer = tf.keras.optimizers.Adam(
                 learning_rate=self.learning_rate
             )
+            # optimizer = tf.keras.optimizers.MomentumOptimizer(
+            #     learning_rate=self.learning_rate
+            # )
             model.compile(
                 optimizer=optimizer,
                 loss=model.compute_loss,
@@ -359,47 +394,64 @@ class Transformers(Classifier):
             )
 
             callbacks = None
-            epochs = settings.EPOCHS
-            if 1:
-                epochs = 15
+            if self.early_stopping_condition:
                 class EarlyStop(tf.keras.callbacks.Callback):
-                    def on_epoch_end(self, epoch, logs={}):
-                        if (logs.get('accuracy') > 0.94):
-                            self.model.stop_training = True
+                    def on_epoch_end(this, epoch, logs={}):
+                        if self.early_stopping_condition(logs):
+                            this.model.stop_training = True
                 callbacks = [EarlyStop()]
 
+            class_weight = None
+            if settings.CLASS_WEIGHT:
+                class_sizes = self.df_train.cat1.value_counts()
+                class_sizes_max = class_sizes.max()
+                class_weight = {
+                    i: class_sizes_max / class_sizes[c]
+                    for c, i in self.classes.items()
+                }
+
             model.fit(
-                # train_dataset.shuffle(1000).batch(16),
-                # TODO: understand what that batch() does...
-                train_dataset.batch(settings.MINIBATCH),
-                epochs=epochs,
+                train_dataset,
+                epochs=self.max_epochs,
                 batch_size=settings.MINIBATCH,
                 validation_data=val_data,
                 callbacks=callbacks,
+                class_weight=class_weight,
             )
             self.model = model
         else:
             # TODO: fix this. Almost immediate but random results
             #  compared to TF method above.
+            from transformers import (
+                TFTrainer, TFTrainingArguments,
+                TFAutoModelForSequenceClassification
+            )
+            # from transformers import TFAutoModel
+
             training_args = TFTrainingArguments(
                 output_dir=self.results_path,  # output directory
-                num_train_epochs=settings.EPOCHS,  # total number of training epochs
+                num_train_epochs=self.max_epochs,  # total number of training epochs
                 per_device_train_batch_size=settings.MINIBATCH,
                 # batch size per device during training
                 per_device_eval_batch_size=64,  # batch size for evaluation
                 warmup_steps=500,
                 # number of warmup steps for learning rate scheduler
-                # weight_decay=0.01,  # strength of weight decay
+                weight_decay=0.01,  # strength of weight decay
                 logging_dir=self.logs_path,  # directory for storing logs
             )
+
+            print('h2')
 
             with training_args.strategy.scope():
                 # trainer_model = TFSequenceClassification.from_pretrained(
                 #     Transformers.pretrained_model, num_labels=len(self.classes)
                 # )
-                trainer_model = TFAutoModel.from_pretrained(
-                    Transformers.pretrained_model_name, num_labels=len(self.classes)
+                trainer_model = TFAutoModelForSequenceClassification.from_pretrained(
+                    Transformers.pretrained_model_name,
+                    num_labels=len(self.classes)
                 )
+
+            print('h3')
 
             trainer = TFTrainer(
                 model=trainer_model,
@@ -407,6 +459,8 @@ class Transformers(Classifier):
                 train_dataset=train_dataset,
                 eval_dataset=train_dataset,
             )
+
+            print('h4')
 
             trainer.train()
 
@@ -429,6 +483,7 @@ class Transformers(Classifier):
             string,
             truncation=True,
             padding=True,
+            max_length = self.max_length,
             return_tensors="tf"
         )
 
@@ -461,7 +516,7 @@ class Transformers(Classifier):
             in df_dataset['cat1'].to_list()
         ]
 
-        encodings = self.tokenizer(texts, truncation=True, padding=True)
+        encodings = self.tokenizer(texts, truncation=True, padding=True, max_length=self.max_length)
 
         # 4. Creating a Dataset object for Tensorflow
         return tf.data.Dataset.from_tensor_slices((
