@@ -72,9 +72,9 @@ FULL_TEXT = 0
 CAT_DEPTH = 1
 
 # the seed to split into train/test sets, None if random, integer otherwise
-# 34: transformers L1FT get stuck on it with lr=5e-5
-SAMPLE_SEED = None
-# SAMPLE_SEED = 11
+# 34/11: transformers L1FT get stuck on it with lr=5e-5
+# SAMPLE_SEED = None
+SAMPLE_SEED = 1
 
 # Number of times a model sees the full training set.
 # 400-500 seems ideal for 450 training set of titles.
@@ -95,9 +95,8 @@ TEST_PER_CLASS = 6 if CAT_DEPTH == 1 else 2
 # How many times we repeat training over different train/test splits.
 # 40 trials should be enough to remove variation, but long to run.
 TRIALS = int(40 / TEST_PER_CLASS * 2)
-TRIALS = 2
-# TRIALS = 40
 # TRIALS = 2
+# TRIALS = 40
 
 # minimum number of training samples per class (default 2).
 # A class is 'TINY' if it contains fewer than
@@ -124,10 +123,10 @@ VALID_PER_CLASS = 3
 # VALID_PER_CLASS = 0
 
 # one of the class names in classifiers.py
-CLASSIFIER = 'NaiveBayes'
+# CLASSIFIER = 'NaiveBayes'
 # CLASSIFIER = 'FastText'
 # CLASSIFIER = 'FlairTARS'
-# CLASSIFIER = 'Transformers'
+CLASSIFIER = 'Transformers'
 
 # ---------------------------------------------------------
 # NN

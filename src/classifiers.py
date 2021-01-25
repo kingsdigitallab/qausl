@@ -1,3 +1,5 @@
+from tensorflow.python.keras.backend import set_session
+
 import settings
 import utils
 
@@ -12,10 +14,18 @@ class Classifier:
         self.seed = seed
         self.prepare_resources()
 
+    def __del__(self):
+        self.release_resources()
+
     def prepare_resources(self):
         '''Any preparation of resources shared by trainings.
         This is called each time a Classifier is instantiated.
         Placeholder for subclasses.'''
+        pass
+
+    def release_resources(self):
+        '''release resources'''
+        print('base.release_resource')
         pass
 
     def get_pretrained_model_name(self):
@@ -329,8 +339,20 @@ class Transformers(Classifier):
 
     # max_epochs = settings.EPOCHS
     max_epochs = 25
+    max_epochs = 1
 
     def prepare_resources(self):
+        # import tensorflow as tf
+        # from tensorflow.compat.v1 import ConfigProto
+        # config = ConfigProto()
+        # config.gpu_options.allow_growth = True
+        # sess = tf.Session(config=config)
+        # set_session(sess)
+
+        # from numba import cuda
+        # cuda.close()
+        # cuda.select_device(0)
+
         import os
         self.logs_path = os.path.join(settings.WORKING_DIR, 'transformers', 'logs')
         os.makedirs(self.logs_path, exist_ok=True)
@@ -351,6 +373,18 @@ class Transformers(Classifier):
             # default is 1e-7 which is too small for float16.
             # Without adjusting the epsilon, we will get NaN predictions because of divide by zero problems
             keras.backend.set_epsilon(1e-4)
+
+    def release_resources(self):
+        # https://stackoverflow.com/a/52354943
+        # Without this tensorflow 2.3 crashes after 12/13 trials
+        # Resource exhausted:  OOM when allocating tensor with shape[8,69,768]
+        print('release_resources')
+        from tensorflow import keras
+        keras.backend.clear_session()
+
+        print('h1')
+
+        # print('h2')
 
     def train(self):
         import tensorflow as tf

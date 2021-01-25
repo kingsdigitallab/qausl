@@ -25,8 +25,13 @@ def run_trials():
     print('Load datasets')
     df = prepare_dataset()
 
+    classifier = None
+
     preds = []
     for i in range(0, settings.TRIALS):
+        if classifier:
+            classifier.release_resources()
+
         if settings.SAMPLE_SEED:
             seed = settings.SAMPLE_SEED + i
             utils.set_global_seed(seed)
@@ -40,6 +45,7 @@ def run_trials():
         if accuracy < 0.4:
             catastrophic_failures += 1
         print('-' * 40)
+
     t1 = time.time()
 
     preds = pd.DataFrame(preds)
@@ -51,6 +57,7 @@ def run_trials():
     if 1:
         utils.render_confidence_matrix(classifier, preds)
 
+    # summary - F1
     acc = len(preds.loc[preds['pred'] == preds['cat']]) / len(preds)
 
     conf = settings.MIN_CONFIDENCE
@@ -160,6 +167,7 @@ def prepare_dataset():
     # normalise the title
     classifier = Classifier.from_name(settings.CLASSIFIER, None)
     df_all['titlen'] = df_all['title'].apply(lambda v: classifier.tokenise(v))
+    classifier.release_resources()
 
     return df_all
 
