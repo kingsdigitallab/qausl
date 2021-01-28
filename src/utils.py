@@ -359,7 +359,7 @@ def learn_embeddings_from_transcipts():
     model.save_model(settings.TRANSCRIPTS_MODEL_PATH)
 
 
-def get_confusion_matrix(preds, classifier):
+def get_confusion_matrix(preds, df_train):
 
     ret = pd.crosstab(
         preds['cat'],
@@ -388,7 +388,7 @@ def get_confusion_matrix(preds, classifier):
     ret.loc['FP'] = ret.sum() - np.diag(ret)
 
     # add a row with number of training samples
-    ret.loc['Trained'] = classifier.df_train.cat1.value_counts()
+    ret.loc['Trained'] = df_train.cat1.value_counts()
 
     return ret
 
@@ -437,7 +437,7 @@ def get_exp_key(classifier):
     return ret
 
 
-def render_confusion(classifier, df_confusion, preds, fmt='g', vmax=None, fname='conf'):
+def render_confusion(classifier_key, df_confusion, preds, fmt='g', vmax=None, fname='conf'):
     import matplotlib.pyplot as plt
     import numpy as np
 
@@ -476,7 +476,7 @@ def render_confusion(classifier, df_confusion, preds, fmt='g', vmax=None, fname=
     ax1.set_xticklabels(ax1.get_xticklabels(), rotation=30)
     ax1.set_yticklabels(ax1.get_yticklabels(), rotation=30)
 
-    plt.savefig(get_data_path(settings.PLOT_PATH, get_exp_key(classifier) + '-' + fname + '.svg'))
+    plt.savefig(get_data_path(settings.PLOT_PATH, classifier_key + '-' + fname + '.svg'))
     plt.close()
 
 
@@ -522,7 +522,7 @@ def render_confusion_old(df_confusion, preds, fmt='g', vmax=None, fname='conf'):
     plt.savefig(get_data_path(settings.PLOT_PATH, get_exp_key() + '-' + fname + '.svg'))
 
 
-def render_confidence_matrix(classifier, preds):
+def render_confidence_matrix(classifier_key, preds):
     '''
     Render a precision vs recall chart for each category.
 
@@ -594,13 +594,13 @@ def render_confidence_matrix(classifier, preds):
         )
 
     ax1.title.set_text('Precision / recall ({}, {}% accuracy)'.format(
-        classifier.__class__.__name__,
+        classifier_key.split('_')[0],
         int(len(preds.loc[preds['pred'] == preds['cat']]) / len(preds) * 100),
     ))
 
     fname = 'prec'
 
-    plt.savefig(get_data_path(settings.PLOT_PATH, get_exp_key(classifier) + '-' + fname + '.svg'))
+    plt.savefig(get_data_path(settings.PLOT_PATH, classifier_key + '-' + fname + '.svg'))
     plt.close()
 
     return ret

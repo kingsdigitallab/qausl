@@ -475,3 +475,77 @@ Q. why are the metrics different in end_epoch callback from the display?
 {'loss': 3.3285114765167236, 'accuracy': 0.4869791567325592}
 
 
+
+class EarlyStopValLoss(tf.keras.callbacks.Callback):
+
+    def __init__(self):
+        super(EarlyStopValLoss, self).__init__()
+        self.losses = []
+        self.accs = []
+        self.diff = 0.001
+        self.growth = 2.0
+        self.shrink = 0.5
+        self.min_rate = None
+        self.max_rate = None
+        self.batches_per_epoch = 0
+        self.history_lr = []
+
+    def on_epoch_begin(self, epoch, logs=None):
+        self.history_lr.append(self.get_learning_rate())
+
+    def on_epoch_end(self, epoch, logs={}):
+        self.losses = []
+
+        if self.growth < 1:
+            acc = logs.get('val_loss')
+            self.accs.append(acc)
+
+            gap = 4
+            if len(self.accs) > gap + 1:
+                if (self.accs[-gap-2] - acc) / acc <= self.diff:
+                    self.model.stop_training = True
+
+    def on_train_batch_end(self, batch, logs=None):
+        self.batches_per_epoch = max(self.batches_per_epoch, batch)
+        loss = logs.get('loss')
+        self.losses.append(loss)
+
+    def get_learning_rate(self):
+        return float(tf.keras.backend.get_value(self.model.optimizer.learning_rate))
+
+    def on_train_batch_begin(self, batch, logs=None):
+        gap = 6
+
+        if self.growth < 1:
+            gap = self.batches_per_epoch - 2
+
+        if len(self.losses) > gap + 1:
+            last_loss = self.losses[-1]
+            diff = (self.losses[-gap-2] - last_loss) / last_loss
+            if diff <= self.diff * 10:
+                lr = self.get_learning_rate()
+                print(f' {lr:0.0E} {diff:0.0E} {len(self.losses)}')
+
+                self.losses = [self.losses[-1]]
+
+                if self.min_rate and lr > self.max_rate:
+                    # that was the peak acceptable rate
+                    # this rate isn't working at all.
+                    # step back to last working rate.
+                    print(f' REGR LR {lr:0.0E}')
+                    lr = lr / self.growth
+                    self.max_rate = lr
+                    # we reverse the direction, LR shrinking now
+                    self.growth = self.shrink
+                else:
+                    lr = lr * self.growth
+
+                tf.keras.backend.set_value(self.model.optimizer.lr, lr)
+                # if self.growth < 1:
+
+        if len(self.losses) > 2 + gap * 1.5:
+            lr = self.get_learning_rate()
+            if self.min_rate is None:
+                self.min_rate = lr
+                print(f' MIN LR {lr:0.0E}')
+            self.max_rate = max(self.max_rate or 0, lr)

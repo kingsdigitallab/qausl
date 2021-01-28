@@ -25,13 +25,8 @@ def run_trials():
     print('Load datasets')
     df = prepare_dataset()
 
-    classifier = None
-
     preds = []
     for i in range(0, settings.TRIALS):
-        if classifier:
-            classifier.release_resources()
-
         if settings.SAMPLE_SEED:
             seed = settings.SAMPLE_SEED + i
             utils.set_global_seed(seed)
@@ -41,7 +36,7 @@ def run_trials():
             settings.TRIALS,
             f' ({seed} seed)' if seed else ''
         ))
-        classifier, accuracy = train_and_test(df, preds, seed)
+        classifier_key, accuracy, df_train = train_and_test(df, preds, seed)
         if accuracy < 0.4:
             catastrophic_failures += 1
         print('-' * 40)
@@ -51,11 +46,11 @@ def run_trials():
     preds = pd.DataFrame(preds)
 
     if 1:
-        df_confusion = utils.get_confusion_matrix(preds, classifier)
-        utils.render_confusion(classifier, df_confusion, preds)
+        df_confusion = utils.get_confusion_matrix(preds, df_train)
+        utils.render_confusion(classifier_key, df_confusion, preds)
 
     if 1:
-        utils.render_confidence_matrix(classifier, preds)
+        utils.render_confidence_matrix(classifier_key, preds)
 
     # summary - F1
     acc = len(preds.loc[preds['pred'] == preds['cat']]) / len(preds)
@@ -79,7 +74,7 @@ def run_trials():
         catastrophic_failures = ''
 
     utils.log('{}; {:.2f} acc; {:.2f} prec, {:.2f} rec, {:.2f} f1 for {:.2f} conf.; {:.0f} mins.{}'.format(
-        utils.get_exp_key(classifier),
+        classifier_key,
         acc,
         precision,
         recall,
@@ -129,8 +124,11 @@ def train_and_test(df, preds, seed):
     if settings.EVALUATE_TRAINING_SET:
         evaluate_model(classifier, classifier.df_train, display_prefix='TRAIN = ')
     accuracy = evaluate_model(classifier, df_test, preds, display_prefix='TEST  = ')
+    classifier_key = utils.get_exp_key(classifier)
 
-    return classifier, accuracy
+    classifier.release_resources()
+
+    return classifier_key, accuracy, classifier.df_train
 
 
 def prepare_dataset():

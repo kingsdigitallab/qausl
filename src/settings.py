@@ -63,7 +63,7 @@ os.makedirs(PLOT_PATH, exist_ok=True)
 # ---------------------------------------------------------
 # GENERAL TRAINING
 
-CLASS_WEIGHT = 0
+CLASS_WEIGHT = 1
 
 # If True, use the full text of a chapter instead of just its title
 FULL_TEXT = 0
@@ -83,7 +83,7 @@ SAMPLE_SEED = 1
 # Generally the less data, the more epoch we need.
 EPOCHS = 5 if not FULL_TEXT else 200
 # for Transformers, the epoch is a maximum (25)
-## EPOCHS = 25
+# EPOCHS = 25
 
 # how many test sample per class
 # default 2
@@ -95,7 +95,7 @@ TEST_PER_CLASS = 6 if CAT_DEPTH == 1 else 2
 # How many times we repeat training over different train/test splits.
 # 40 trials should be enough to remove variation, but long to run.
 TRIALS = int(40 / TEST_PER_CLASS * 2)
-# TRIALS = 2
+# TRIALS = 1
 # TRIALS = 40
 
 # minimum number of training samples per class (default 2).
@@ -115,12 +115,13 @@ TRAIN_PER_CLASS_MAX = [0, 60, 40, 25][CAT_DEPTH]
 # TRAIN_PER_CLASS_MAX = TRAIN_PER_CLASS_MIN
 # TRAIN_PER_CLASS_MAX = 100
 # TRAIN_PER_CLASS_MAX = 18
+# TRAIN_PER_CLASS_MAX = 2
 
 # how many validation sample per class
 # 0 means we don't use validation
 # default 1 or 2
-VALID_PER_CLASS = 3
-# VALID_PER_CLASS = 0
+# VALID_PER_CLASS = 3
+VALID_PER_CLASS = 0
 
 # one of the class names in classifiers.py
 # CLASSIFIER = 'NaiveBayes'

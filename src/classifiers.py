@@ -1,7 +1,10 @@
+from math import log10
+
 from tensorflow.python.keras.backend import set_session
 
 import settings
 import utils
+import tensorflow as tf
 
 
 class Classifier:
@@ -290,6 +293,120 @@ class NaiveBayes(Classifier):
             no_small_words=True, no_numbers=True
         )
 
+class EarlyStop(tf.keras.callbacks.Callback):
+
+    def __init__(self):
+        super(EarlyStop, self).__init__()
+        self.min_rate = None
+        self.max_rate = None
+        self.history_lr = []
+        self.show_debug = False
+        self.initial_learning_rate = None
+
+    def get_learning_rate(self):
+        return float(tf.keras.backend.get_value(self.model.optimizer.learning_rate))
+
+    def set_learning_rate(self, rate=None):
+        if rate is not None:
+            tf.keras.backend.set_value(self.model.optimizer.lr, rate)
+
+    def on_epoch_begin(self, epoch, logs=None):
+        if epoch == 0:
+            self.set_learning_rate(self.initial_learning_rate)
+
+        self.history_lr.append(self.get_learning_rate())
+
+    def debug(self, message):
+        if self.show_debug:
+            print(message)
+
+class EarlyStopValAccuracy(EarlyStop):
+
+    def on_epoch_end(this, epoch, logs={}):
+        if ((
+                logs.get('val_accuracy', 0) > 0.94
+                # if few val samples, val acc can be high accidentally
+                and logs.get('accuracy') > 0.94
+        )
+                # stagnation & overfitting
+                or logs.get('accuracy') > 0.99):
+            this.model.stop_training = True
+
+class EarlyStopValLoss(EarlyStop):
+
+    def __init__(self):
+        super(EarlyStopValLoss, self).__init__()
+        self.losses = []
+        self.accs = []
+        self.diff = 0.001
+        self.growth = 2.0
+        self.shrink = 0.5
+        self.batches_per_epoch = 0
+        self.initial_learning_rate = 1e-7
+
+    def on_epoch_end(self, epoch, logs={}):
+        self.losses = []
+        acc = logs.get('val_loss')
+        self.accs.append(acc)
+
+        if self.growth < 1:
+            diff = (self.accs[-2] - acc) / acc
+            if len(self.accs) > 1 and diff < self.diff:
+                lr = self.get_learning_rate()
+                lr = lr * self.growth
+                self.debug(f' shrink LR {lr:0.0E}')
+                tf.keras.backend.set_value(self.model.optimizer.lr, lr)
+
+            gap = 1
+            if logs.get('val_accuracy') >= 0.99:
+                self.model.stop_training = True
+            elif len(self.accs) > gap + 1:
+                self.debug(f'\n accs: {self.accs} gap: {gap}')
+                if (self.accs[-gap-2] - acc) / acc <= self.diff:
+                    self.model.stop_training = True
+
+    def on_train_batch_end(self, batch, logs=None):
+        self.batches_per_epoch = max(self.batches_per_epoch, batch)
+        loss = logs.get('loss')
+        self.losses.append(loss)
+
+    def on_train_batch_begin(self, batch, logs=None):
+        gap = 6
+
+        if self.growth < 1:
+            return
+            gap = self.batches_per_epoch - 2
+
+        if len(self.losses) > gap + 1:
+            last_loss = self.losses[-1]
+            diff = (self.losses[-gap-2] - last_loss) / last_loss
+            if diff <= self.diff * 10:
+                lr = self.get_learning_rate()
+                self.debug(f' {lr:0.0E} {diff:0.0E} {len(self.losses)}')
+
+                self.losses = [self.losses[-1]]
+
+                lr = lr * self.growth
+
+                self.set_learning_rate(lr)
+
+        if len(self.losses) > 2 + gap * 1.5:
+            lr = self.get_learning_rate()
+            if self.min_rate is None:
+                # smallest rate that yields progress
+                self.min_rate = lr
+                self.debug(f'\n MIN LR {lr:0.0E}')
+
+                # let's increase it a bit, to speed things up
+                # and explore more.
+                lr = lr * self.growth
+                # switch to shrinking mode (exploitation)
+                self.growth = self.shrink
+
+                self.debug(f' ACC LR {lr:0.0E}')
+
+            self.max_rate = max(self.max_rate or 0, lr)
+
 
 class Transformers(Classifier):
     '''Huggingface Transformers wrapper around Legal variant of Bert.
@@ -306,7 +423,7 @@ class Transformers(Classifier):
     # but occasionally get stuck forever at <0.3 acc.
     # learning_rate = 5e-5
     # TODO: use dynamic LR
-    # 5e-6 more stable than -5 but slow grinder... needs 3x more epochs.
+    # 5e-6 more stable than e-5 but slow grinder... needs 3x more epochs.
     # BUT... 5e-6 is both too slow and not generalisable enough on title-only
     # Why? Why slower to converge on simpler inputs?
     if settings.FULL_TEXT:
@@ -314,19 +431,7 @@ class Transformers(Classifier):
     else:
         learning_rate = 5e-5
 
-    # learning_rate = 5e-5
-
     max_length = 500
-
-    early_stopping_condition = lambda cb, logs: (
-        (
-            logs.get('val_accuracy') > 0.94
-            # if few val samples, val acc can be high accidentally
-            and logs.get('accuracy') > 0.94
-        )
-        # stagnation & overfitting
-        or logs.get('accuracy') > 0.99
-    )
 
     # https://huggingface.co/transformers/pretrained_models.html
     # 6-layer, 768-hidden, 12-heads, 66M parameters
@@ -339,7 +444,6 @@ class Transformers(Classifier):
 
     # max_epochs = settings.EPOCHS
     max_epochs = 25
-    max_epochs = 1
 
     def prepare_resources(self):
         # import tensorflow as tf
@@ -378,16 +482,13 @@ class Transformers(Classifier):
         # https://stackoverflow.com/a/52354943
         # Without this tensorflow 2.3 crashes after 12/13 trials
         # Resource exhausted:  OOM when allocating tensor with shape[8,69,768]
-        print('release_resources')
         from tensorflow import keras
         keras.backend.clear_session()
 
-        print('h1')
-
-        # print('h2')
-
     def train(self):
         import tensorflow as tf
+
+        self.scheduler = None
         # Encoding train_texts and val_texts
 
         # x-digit code -> unique number
@@ -428,12 +529,12 @@ class Transformers(Classifier):
             )
 
             callbacks = None
-            if self.early_stopping_condition:
-                class EarlyStop(tf.keras.callbacks.Callback):
-                    def on_epoch_end(this, epoch, logs={}):
-                        if self.early_stopping_condition(logs):
-                            this.model.stop_training = True
-                callbacks = [EarlyStop()]
+
+            early_stopping_condition = 1
+            if early_stopping_condition:
+                # self.scheduler = EarlyStopValLoss()
+                self.scheduler = EarlyStopValAccuracy()
+                callbacks = [self.scheduler]
 
             class_weight = None
             if settings.CLASS_WEIGHT:
@@ -444,7 +545,7 @@ class Transformers(Classifier):
                     for c, i in self.classes.items()
                 }
 
-            model.fit(
+            self.history = model.fit(
                 train_dataset,
                 epochs=self.max_epochs,
                 batch_size=settings.MINIBATCH,
@@ -453,6 +554,8 @@ class Transformers(Classifier):
                 class_weight=class_weight,
             )
             self.model = model
+
+            self.render_training()
         else:
             # TODO: fix this. Almost immediate but random results
             #  compared to TF method above.
@@ -510,6 +613,36 @@ class Transformers(Classifier):
         # self.model = TFDistilBertForSequenceClassification.from_pretrained(
         #     self.save_path)
 
+    def render_training(self):
+        history = self.history.history
+        loss = [history['loss'][0]] + history['loss']
+        val_loss = [history['val_loss'][0]] + history['val_loss']
+        lr = [-log10(r) for r in self.scheduler.history_lr]
+        lr = lr + [lr[-1]]
+
+        import matplotlib.pyplot as plt
+
+        epochs = range(1, len(loss)+ 1)
+
+        plt.plot(epochs, loss, 'k', label='Training loss')
+        plt.plot(epochs, val_loss, 'y', label='Validation loss')
+        plt.plot(epochs, lr, 'r', label='Learning rate (1e-X)')
+
+        min_max = [
+            r or 0 for r in
+            [self.scheduler.min_rate, self.scheduler.max_rate]
+        ]
+
+        plt.title(f'Training and validation loss [{min_max[0]:0.0E} - {min_max[1]:0.0E}]')
+        plt.legend()
+
+        fname = 'loss'
+        plt.savefig(utils.get_data_path(
+            settings.PLOT_PATH,
+            utils.get_exp_key(self) + '-' + fname + '.svg')
+        )
+        plt.close()
+
     def predict(self, string):
         import tensorflow as tf
 
@@ -540,7 +673,6 @@ class Transformers(Classifier):
     def _create_transformer_dataset(self, df_dataset):
         '''Returns a new transformer-compatible dataset
         from one of our datasets'''
-        import tensorflow as tf
 
         texts = df_dataset['title'].to_list()
         # get a list of matching categories as numbers not as codes
@@ -549,6 +681,10 @@ class Transformers(Classifier):
             for c
             in df_dataset['cat1'].to_list()
         ]
+
+        # https://stackoverflow.com/a/58667409 ?
+        import numpy as np
+        labels = np.asarray(labels).astype('float32')
 
         encodings = self.tokenizer(texts, truncation=True, padding=True, max_length=self.max_length)
 
