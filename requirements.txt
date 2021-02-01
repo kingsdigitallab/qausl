@@ -11,3 +11,4 @@ flair
 # pip install intel-tensorflow-avx512 # on intel CPUs
 tensorflow
 # numba
+tensorflow-addons

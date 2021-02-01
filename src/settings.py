@@ -66,10 +66,10 @@ os.makedirs(PLOT_PATH, exist_ok=True)
 CLASS_WEIGHT = 1
 
 # If True, use the full text of a chapter instead of just its title
-FULL_TEXT = 0
+FULL_TEXT = 1
 
 # 1, 2 or 3: the depth of the taxonomy for the classification
-CAT_DEPTH = 1
+CAT_DEPTH = 3
 
 # the seed to split into train/test sets, None if random, integer otherwise
 # 34/11: transformers L1FT get stuck on it with lr=5e-5
@@ -88,15 +88,15 @@ EPOCHS = 5 if not FULL_TEXT else 200
 # how many test sample per class
 # default 2
 TEST_PER_CLASS = 6 if CAT_DEPTH == 1 else 2
-# TEST_PER_CLASS = 1
+# TEST_PER_CLASS = 2
 # TEST_PER_CLASS = 36
 # TEST_PER_CLASS = 18
 
 # How many times we repeat training over different train/test splits.
 # 40 trials should be enough to remove variation, but long to run.
 TRIALS = int(40 / TEST_PER_CLASS * 2)
-# TRIALS = 1
 # TRIALS = 40
+# TRIALS = 1
 
 # minimum number of training samples per class (default 2).
 # A class is 'TINY' if it contains fewer than
@@ -137,6 +137,10 @@ CLASSIFIER = 'Transformers'
 # higher more stable?
 # 8 is more stable, gives good results and works with lower resources.
 MINIBATCH = 8
+
+# Leave to None for good defaults
+# LEARNING_RATE = None
+LEARNING_RATE = None
 
 # ---------------------------------------------------------
 # FASTTEXT

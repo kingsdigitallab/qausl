@@ -256,10 +256,10 @@ def evaluate_model(classifier, df_eval, preds=None, display_prefix=''):
 
 # seed = 34: slips... never learns
 
-# for class_weight in [0, 1]:
-#     settings.CLASS_WEIGHT = class_weight
-#     for full_text in [0, 1]:
-#         settings.FULL_TEXT = full_text
-#         run_trials()
-
-run_trials()
+if 0:
+    # for rate in [5e-4, 1e-5, 2e-5, 5e-5, 7e-5, 1e-6, 2e-6, 5e-6, 7e-6, 1e-7, 2e-7, 5e-7]:
+    for rate in [5e-6, 6e-6, 7e-6, 8e-6, 9e-6]:
+        settings.LEARNING_RATE = rate
+        run_trials()
+else:
+    run_trials()

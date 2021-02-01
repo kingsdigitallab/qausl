@@ -1,6 +1,7 @@
 from math import log10
 
 from tensorflow.python.keras.backend import set_session
+from tensorflow_addons.optimizers import AdamW
 
 import settings
 import utils
@@ -28,7 +29,6 @@ class Classifier:
 
     def release_resources(self):
         '''release resources'''
-        print('base.release_resource')
         pass
 
     def get_pretrained_model_name(self):
@@ -300,8 +300,7 @@ class EarlyStop(tf.keras.callbacks.Callback):
         self.min_rate = None
         self.max_rate = None
         self.history_lr = []
-        self.show_debug = False
-        self.initial_learning_rate = None
+        self.show_debug = True
 
     def get_learning_rate(self):
         return float(tf.keras.backend.get_value(self.model.optimizer.learning_rate))
@@ -311,102 +310,164 @@ class EarlyStop(tf.keras.callbacks.Callback):
             tf.keras.backend.set_value(self.model.optimizer.lr, rate)
 
     def on_epoch_begin(self, epoch, logs=None):
-        if epoch == 0:
-            self.set_learning_rate(self.initial_learning_rate)
-
         self.history_lr.append(self.get_learning_rate())
 
     def debug(self, message):
         if self.show_debug:
             print(message)
 
+    def pretrain(self, model, train_dataset):
+        pass
+
+
 class EarlyStopValAccuracy(EarlyStop):
 
-    def on_epoch_end(this, epoch, logs={}):
+    def __init__(self):
+        super(EarlyStopValAccuracy, self).__init__()
+        self.losses = []
+
+    def on_epoch_end(self, epoch, logs={}):
         if ((
-                logs.get('val_accuracy', 0) > 0.94
+                logs.get('val_accuracy', 0) > 0.99
                 # if few val samples, val acc can be high accidentally
-                and logs.get('accuracy') > 0.94
+                and logs.get('accuracy') > 0.93
         )
                 # stagnation & overfitting
                 or logs.get('accuracy') > 0.99):
-            this.model.stop_training = True
+            self.model.stop_training = True
+
+        # self.losses = []
+        loss = logs.get('val_loss') or 100
+        self.losses.append(loss)
+
+        gap = 2
+        if len(self.losses) > gap + 1:
+            # long stagnation => stop training
+            if (self.losses[-gap-2] - loss) / loss <= 0.005:
+                print('\nSTAGNATING => stop')
+                self.model.stop_training = True
+
 
 class EarlyStopValLoss(EarlyStop):
+    '''
+    Learning Rate Scheduler:
+        starts at very low rate: 1e-7
+        then increase by <growth> (e.g. 2.0) each time
+            a sequence of n batches don't show an decrease of <diff> of loss
+        we note the rate for the first longer sequence to show decrease
+            => self.min_rate
+        we then increase that by one step <growth> and swith the shrinking mode
+        in that mode we run entire epochs and only decrease rate by <shrink>
+        each time there is no sufficient reduction of validation loss.
+    Stopping condition:
+        if last m epochs don't show a decrease of validation loss
+    '''
 
     def __init__(self):
         super(EarlyStopValLoss, self).__init__()
         self.losses = []
         self.accs = []
         self.diff = 0.001
-        self.growth = 2.0
-        self.shrink = 0.5
+        self.growth = 1.1
+        self.shrink = 0.2
         self.batches_per_epoch = 0
-        self.initial_learning_rate = 1e-7
+        self.rates = [1e-10, 1e-1]
+        self.best = {
+            'lr': None,
+            'loss': 100,
+            'accuracy': 0,
+            'weights': None,
+        }
+
+    def pretrain(self, model, train_dataset):
+        import math
+        # repeat the training set into enough batches
+        # to cover the total number of intermediary learning rates.
+        steps = (
+            math.ceil(
+                math.log(self.rates[1] / self.rates[0]) /
+                math.log(self.growth)
+            )
+        )
+
+        self.history = model.fit(
+            train_dataset.repeat().batch(settings.MINIBATCH),
+            epochs=1,
+            steps_per_epoch=steps,
+            batch_size=settings.MINIBATCH,
+            callbacks=[self],
+        )
+
+        self.set_learning_rate(self.best['lr'])
+        self.model.set_weights(self.best['weights'])
+        self.growth = self.shrink
+        self.history_lr = []
+        print(f'\nBest rate={self.best["lr"]:0.0E}')
 
     def on_epoch_end(self, epoch, logs={}):
-        self.losses = []
-        acc = logs.get('val_loss')
+        # self.losses = []
+        acc = logs.get('val_loss') or 100
         self.accs.append(acc)
 
         if self.growth < 1:
-            diff = (self.accs[-2] - acc) / acc
-            if len(self.accs) > 1 and diff < self.diff:
+            if len(self.accs) > 1 and ((self.accs[-2] - acc) / acc) < self.diff:
+                # short stagnation => reduce LR
                 lr = self.get_learning_rate()
                 lr = lr * self.growth
-                self.debug(f' shrink LR {lr:0.0E}')
+                self.debug(f'\n shrink LR {lr:0.0E}')
                 tf.keras.backend.set_value(self.model.optimizer.lr, lr)
 
-            gap = 1
+            gap = 2
             if logs.get('val_accuracy') >= 0.99:
                 self.model.stop_training = True
             elif len(self.accs) > gap + 1:
-                self.debug(f'\n accs: {self.accs} gap: {gap}')
+                # long stagnation => stop training
+                # self.debug(f'\n accs: {self.accs} gap: {gap}')
                 if (self.accs[-gap-2] - acc) / acc <= self.diff:
                     self.model.stop_training = True
 
     def on_train_batch_end(self, batch, logs=None):
         self.batches_per_epoch = max(self.batches_per_epoch, batch)
-        loss = logs.get('loss')
+        loss = logs.get('loss') or 100
+        acc = logs.get('accuracy') or 0
+
+        if self.growth > 1:
+            if loss < self.best['loss'] and acc > self.best['accuracy']:
+                # best LR so far
+                self.best['loss'] = loss
+                self.best['accuracy'] = acc
+                self.best['lr'] = self.get_learning_rate()
+                self.best['weights'] = self.model.get_weights()
+                print(f'\n {self.best["loss"]:.3f} {self.best["lr"]:0.0E}')
+
         self.losses.append(loss)
 
     def on_train_batch_begin(self, batch, logs=None):
-        gap = 6
-
         if self.growth < 1:
             return
-            gap = self.batches_per_epoch - 2
 
-        if len(self.losses) > gap + 1:
+        self.model.reset_metrics()
+
+        if batch == 0:
+            self.set_learning_rate(self.rates[0])
+
+        if len(self.losses) > 1:
             last_loss = self.losses[-1]
-            diff = (self.losses[-gap-2] - last_loss) / last_loss
-            if diff <= self.diff * 10:
-                lr = self.get_learning_rate()
-                self.debug(f' {lr:0.0E} {diff:0.0E} {len(self.losses)}')
-
-                self.losses = [self.losses[-1]]
-
-                lr = lr * self.growth
-
-                self.set_learning_rate(lr)
-
-        if len(self.losses) > 2 + gap * 1.5:
             lr = self.get_learning_rate()
-            if self.min_rate is None:
-                # smallest rate that yields progress
-                self.min_rate = lr
-                self.debug(f'\n MIN LR {lr:0.0E}')
+            # self.debug(f' LR {lr:0.0E} ACC {last_loss:.3f}')
+            if 0 and last_loss < self.losses[0]:
+                self.debug(f'\n MAX LR {lr:0.0E}')
 
-                # let's increase it a bit, to speed things up
-                # and explore more.
-                lr = lr * self.growth
+                # let's decrease it a bit
+                lr = lr / self.growth
                 # switch to shrinking mode (exploitation)
                 self.growth = self.shrink
 
-                self.debug(f' ACC LR {lr:0.0E}')
+                self.debug(f' -> LR {lr:0.0E}')
+            else:
+                lr = lr * self.growth
 
-            self.max_rate = max(self.max_rate or 0, lr)
-
+            self.set_learning_rate(lr)
 
 class Transformers(Classifier):
     '''Huggingface Transformers wrapper around Legal variant of Bert.
@@ -426,12 +487,15 @@ class Transformers(Classifier):
     # 5e-6 more stable than e-5 but slow grinder... needs 3x more epochs.
     # BUT... 5e-6 is both too slow and not generalisable enough on title-only
     # Why? Why slower to converge on simpler inputs?
-    if settings.FULL_TEXT:
-        learning_rate = 5e-6
-    else:
-        learning_rate = 5e-5
+    # if settings.FULL_TEXT:
+    #     learning_rate = 1e-6
+    # else:
+    #     learning_rate = 5e-5
 
     max_length = 500
+
+    scheduler_class = EarlyStopValAccuracy
+    # scheduler_class = EarlyStopValLoss
 
     # https://huggingface.co/transformers/pretrained_models.html
     # 6-layer, 768-hidden, 12-heads, 66M parameters
@@ -444,6 +508,8 @@ class Transformers(Classifier):
 
     # max_epochs = settings.EPOCHS
     max_epochs = 25
+    # print('FIXEPOCHS!')
+    # max_epochs = 5
 
     def prepare_resources(self):
         # import tensorflow as tf
@@ -486,6 +552,7 @@ class Transformers(Classifier):
         keras.backend.clear_session()
 
     def train(self):
+        import tensorflow_addons as tfa
         import tensorflow as tf
 
         self.scheduler = None
@@ -499,11 +566,12 @@ class Transformers(Classifier):
         })
 
         # Convert datasets to transformer format
-        train_dataset = self._create_transformer_dataset(self.df_train).batch(settings.MINIBATCH)
+        train_dataset = self._create_transformer_dataset(self.df_train)
 
         val_data = train_dataset
         if settings.VALID_PER_CLASS:
-            val_data = self._create_transformer_dataset(self.df_valid).batch(settings.MINIBATCH)
+            val_data = self._create_transformer_dataset(self.df_valid)
+        val_data = val_data.batch(settings.MINIBATCH)
 
         # Fine-tune the pre-trained model
         if self.train_with_tensorflow_directly:
@@ -516,9 +584,49 @@ class Transformers(Classifier):
             # from transformers import TFAutoModelForPreTraining
             # model = TFAutoModelForPreTraining.from_pretrained(Transformers.pretrained_model, from_pt=True)
 
-            optimizer = tf.keras.optimizers.Adam(
-                learning_rate=self.learning_rate
-            )
+            # In AdamW weight decay value had no effect in our tests.
+            # hard to find stable tuning, harder to beat vanilla Adam
+            # optimizer = AdamW(
+            #     learning_rate=0.00005,
+            #     # 0.1 (default but might be too large), 0.01
+            #     weight_decay=0.002
+            # )
+            if 1:
+                learning_rate = settings.LEARNING_RATE
+
+                if learning_rate is None:
+                    if settings.FULL_TEXT:
+                        # 5e-5 can fail on L1 e.g. Seed 7
+                        # 1e-5 looks OK (TBC) on L1
+                        # but not on L3 (no convergence)
+                        # 5e-6 very slow
+                        # Candidates: 5E-06 (40%), 7E-06 (49%)
+                        learning_rate = 7E-06
+                    else:
+                        learning_rate = 5e-5
+
+                print(f'\n LR = {learning_rate:0.0E}')
+                from transformers import AdamWeightDecay
+                optimizer = AdamWeightDecay(
+                    learning_rate=learning_rate,
+                    # 0.1 (default but might be too large), 0.01
+                    # weight_decay_rate=0.0
+                )
+            else:
+                if settings.FULL_TEXT:
+                    learning_rate = 1e-3
+                else:
+                    learning_rate = 7e-3
+
+                print(f'\n LR = {learning_rate:0.0E}')
+                optimizer = tfa.optimizers.SGDW(
+                    learning_rate=learning_rate,
+                    momentum=0.0,
+                    weight_decay=0.00
+                    # 0.1 (default but might be too large), 0.01
+                    # weight_decay_rate=0.5
+                )
+
             # optimizer = tf.keras.optimizers.MomentumOptimizer(
             #     learning_rate=self.learning_rate
             # )
@@ -530,11 +638,12 @@ class Transformers(Classifier):
 
             callbacks = None
 
-            early_stopping_condition = 1
-            if early_stopping_condition:
-                # self.scheduler = EarlyStopValLoss()
-                self.scheduler = EarlyStopValAccuracy()
+            self.scheduler = None
+            if self.scheduler_class:
+                self.scheduler = self.scheduler_class()
                 callbacks = [self.scheduler]
+
+                self.scheduler.pretrain(model, train_dataset)
 
             class_weight = None
             if settings.CLASS_WEIGHT:
@@ -546,7 +655,7 @@ class Transformers(Classifier):
                 }
 
             self.history = model.fit(
-                train_dataset,
+                train_dataset.batch(settings.MINIBATCH),
                 epochs=self.max_epochs,
                 batch_size=settings.MINIBATCH,
                 validation_data=val_data,
@@ -668,7 +777,8 @@ class Transformers(Classifier):
 
     def tokenise(self, title):
         # not sure if this makes any difference...
-        return title.lower()
+        # return title.lower()
+        return utils.tokenise(title, no_numbers=True)
 
     def _create_transformer_dataset(self, df_dataset):
         '''Returns a new transformer-compatible dataset
